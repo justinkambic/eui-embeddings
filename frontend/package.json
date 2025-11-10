@@ -1,0 +1,29 @@
+{
+  "name": "icon-lab",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@elastic/elasticsearch": "^9.1.1",
+    "@elastic/eui": "^106.4.0",
+    "@emotion/react": "^11.14.0",
+    "form-data": "^4.0.0",
+    "just-debounce-it": "^3.2.0",
+    "next": "^15.5.2",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "create-next-app": "^15.5.2"
+  }
+}
