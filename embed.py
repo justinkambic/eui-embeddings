@@ -68,14 +68,15 @@ async def embed_text(request: EmbedRequest):
 @app.post("/embed-image", response_model=ImageEmbedResponse)
 async def embed_image(file: UploadFile = File(...)):
     """Generate embeddings for an image file"""
+    from image_processor import normalize_search_image
+    
     # Read image file
     image_bytes = await file.read()
     image = Image.open(io.BytesIO(image_bytes))
     
-    # Normalize image: convert to RGB, resize to 224x224
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
-    image = image.resize((224, 224))
+    # Normalize search image to match embedding style (white background, black icon)
+    # This ensures real-world screenshots match indexed SVG embeddings
+    image = normalize_search_image(image, target_size=224)
     
     # Generate embeddings using CLIP
     embeddings = image_model.encode(image, convert_to_numpy=True).tolist()
