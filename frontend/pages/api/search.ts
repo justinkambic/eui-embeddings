@@ -14,6 +14,8 @@ interface SearchResult {
   icon_name: string;
   score: number;
   descriptions?: string[];
+  release_tag?: string;
+  icon_type?: string;
 }
 
 export default async function handler(
@@ -143,10 +145,14 @@ export default async function handler(
     });
 
     // Format results
+    // Use icon_name from document source, not document ID
+    // Document ID includes version tag (e.g., "search_v109.0.0"), but icon_name should be just "search"
     const results: SearchResult[] = (searchResponse.hits.hits || []).map((hit: any) => ({
-      icon_name: hit._id || hit._source?.icon_name,
+      icon_name: hit._source?.icon_name || hit._id,
       score: hit._score || 0,
       descriptions: hit._source?.descriptions,
+      release_tag: hit._source?.release_tag,
+      icon_type: hit._source?.icon_type,
     }));
 
     return res.status(200).json({
