@@ -59,7 +59,7 @@ Create a new Python script that orchestrates the entire indexing process:
     "icon_name": "app_discover",  # From typeToPathMap key
     "filename": "app_discover",   # Original SVG filename
     "release_tag": "v109.0.0",    # EUI version
-    "icon_type": "regular",       # or "token"
+    "icon_type": "icon",          # or "token"
     "token_type": "string",       # Only for token icons
     "svg_embedding": [...],       # 512-dim CLIP embedding
     "svg_content": "...",         # Optional: full SVG content
@@ -73,7 +73,7 @@ Create a new Python script that orchestrates the entire indexing process:
 Add new fields to index mapping:
 
 - `release_tag` (keyword) - EUI version tag
-- `icon_type` (keyword) - "regular" or "token"
+- `icon_type` (keyword) - "icon" or "token"
 - `token_type` (keyword) - Token type for token icons (optional)
 - `filename` (keyword) - Original SVG filename
 

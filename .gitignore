@@ -190,6 +190,7 @@ test-results/
 .pytest_cache/
 .coverage
 htmlcov/
+data/
 
 # Hugging Face cache (optional - uncomment if you don't want to track)
 # .huggingface/

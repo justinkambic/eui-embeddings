@@ -7,12 +7,13 @@ Tests the SVG search functionality by searching for an SVG against indexed embed
 Usage:
     python test_svg_search.py <svg_file_path>
     python test_svg_search.py --svg-content "<svg>...</svg>"
-    python test_svg_search.py --icon-name illustration
+    python test_svg_search.py --icon-name logoElasticsearch
 """
 
 import os
 import sys
 import json
+import re
 import argparse
 import requests
 from pathlib import Path
@@ -20,6 +21,8 @@ from pathlib import Path
 # Configuration
 SEARCH_API_URL = "http://localhost:3001/api/search"
 EMBEDDING_SERVICE_URL = "http://localhost:8000/embed-svg"
+EUI_LOCATION = os.getenv("EUI_LOCATION", "./data/eui")
+ICON_MAP_PATH = "packages/eui/src/components/icon/icon_map.ts"
 
 def read_svg_file(file_path: str) -> str:
     """Read SVG file content"""
@@ -48,37 +51,107 @@ def search_by_svg(svg_content: str, api_url: str = None) -> dict:
             print(f"  Response: {e.response.text}")
         return None
 
-def search_by_icon_name(icon_name: str, api_url: str = None, svg_paths_file: str = ".svgpaths") -> dict:
-    """Search using an icon name by finding its SVG in .svgpaths"""
-    # Read .svgpaths file
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    svgpaths_file = os.path.join(script_dir, svg_paths_file)
+def extract_type_to_path_map(icon_map_path: str) -> dict:
+    """
+    Extract typeToPathMap from TypeScript file.
     
-    if not os.path.exists(svgpaths_file):
-        print(f"✗ Error: {svgpaths_file} not found")
+    Handles TypeScript syntax like:
+    export const typeToPathMap = {
+      iconName: 'filename',
+      ...
+    };
+    """
+    if not os.path.exists(icon_map_path):
+        print(f"✗ Icon map file not found: {icon_map_path}")
+        return {}
+    
+    try:
+        with open(icon_map_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Find the typeToPathMap object
+        # Match: export const typeToPathMap = { ... };
+        pattern = r'export\s+const\s+typeToPathMap\s*=\s*\{([^}]+)\}'
+        match = re.search(pattern, content, re.DOTALL)
+        
+        if not match:
+            print("✗ Could not find typeToPathMap in file")
+            return {}
+        
+        object_content = match.group(1)
+        
+        # Extract key-value pairs
+        # Match: key: 'value', or key: "value",
+        mapping = {}
+        pattern = r'(\w+):\s*["\']([^"\']+)["\']'
+        for match in re.finditer(pattern, object_content):
+            key = match.group(1)
+            value = match.group(2)
+            mapping[key] = value
+        
+        return mapping
+    except Exception as e:
+        print(f"✗ Error extracting typeToPathMap: {e}")
+        return {}
+
+def find_svg_file_in_repo(repo_dir: str, filename: str) -> str:
+    """Find SVG file in repository by filename"""
+    if not os.path.exists(repo_dir):
         return None
     
-    # Find SVG file for this icon name
-    with open(svgpaths_file, 'r', encoding='utf-8') as f:
-        for line in f:
-            path = line.strip()
-            if not path or path.startswith('#'):
-                continue
-            
-            # Resolve relative path
-            if not os.path.isabs(path):
-                path = os.path.join(script_dir, path)
-                path = os.path.normpath(path)
-            
-            # Check if filename matches icon name
-            filename = os.path.splitext(os.path.basename(path))[0]
-            if filename == icon_name and os.path.isfile(path):
-                print(f"Found SVG file: {path}")
-                svg_content = read_svg_file(path)
-                return search_by_svg(svg_content, api_url)
+    # Exclude common directories that shouldn't be searched
+    exclude_dirs = {'.git', 'node_modules', 'dist', 'build', '__pycache__', '.next'}
     
-    print(f"✗ Error: Could not find SVG file for icon '{icon_name}'")
+    for root, dirs, files in os.walk(repo_dir):
+        # Filter out excluded directories
+        dirs[:] = [d for d in dirs if d not in exclude_dirs]
+        
+        for file in files:
+            if file.endswith('.svg'):
+                # Check if filename (without extension) matches
+                file_base = os.path.splitext(file)[0]
+                if file_base == filename:
+                    return os.path.join(root, file)
+    
     return None
+
+def search_by_icon_name(icon_name: str, api_url: str = None) -> dict:
+    """Search using an icon name by finding its SVG in the EUI repository"""
+    # Get EUI location
+    eui_location = os.path.abspath(EUI_LOCATION)
+    
+    if not os.path.exists(eui_location):
+        print(f"✗ Error: EUI repository not found at {eui_location}")
+        print(f"  Set EUI_LOCATION environment variable or ensure repository is cloned")
+        return None
+    
+    # Extract icon mapping
+    icon_map_path = os.path.join(eui_location, ICON_MAP_PATH)
+    type_to_path_map = extract_type_to_path_map(icon_map_path)
+    
+    if not type_to_path_map:
+        print(f"✗ Error: Could not extract icon mappings from {icon_map_path}")
+        return None
+    
+    # Get filename from icon name (reverse mapping)
+    filename = type_to_path_map.get(icon_name)
+    if not filename:
+        print(f"✗ Error: Icon name '{icon_name}' not found in typeToPathMap")
+        print(f"  Available icon names: {', '.join(list(type_to_path_map.keys())[:10])}...")
+        return None
+    
+    print(f"Found icon mapping: {icon_name} -> {filename}")
+    
+    # Find SVG file in repository
+    svg_file = find_svg_file_in_repo(eui_location, filename)
+    
+    if not svg_file:
+        print(f"✗ Error: Could not find SVG file '{filename}.svg' in repository")
+        return None
+    
+    print(f"Found SVG file: {svg_file}")
+    svg_content = read_svg_file(svg_file)
+    return search_by_svg(svg_content, api_url)
 
 def main():
     parser = argparse.ArgumentParser(

@@ -7,6 +7,7 @@ Creates the 'icons' index with proper mappings for:
 - ELSER sparse embeddings (sparse_vector)
 - Image embeddings (dense_vector, 512 dims)
 - SVG embeddings (dense_vector, 512 dims)
+- Version tracking fields (release_tag, icon_type, token_type, filename)
 """
 
 import os
@@ -21,6 +22,18 @@ INDEX_MAPPING = {
     "mappings": {
         "properties": {
             "icon_name": {
+                "type": "keyword"
+            },
+            "filename": {
+                "type": "keyword"
+            },
+            "release_tag": {
+                "type": "keyword"
+            },
+            "icon_type": {
+                "type": "keyword"  # Values: "icon" or "token"
+            },
+            "token_type": {
                 "type": "keyword"
             },
             "descriptions": {
@@ -51,6 +64,10 @@ INDEX_MAPPING = {
                 "dims": 512,
                 "index": True,
                 "similarity": "cosine"
+            },
+            "svg_content": {
+                "type": "text",
+                "index": False
             }
         }
     },
