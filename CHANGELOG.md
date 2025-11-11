@@ -5,69 +5,74 @@ All notable changes to the EUI Icon Embeddings project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Project Status
+
+This project provides a production-ready, multi-modal search system for Elastic UI (EUI) icons, supporting semantic text search, visual image matching, and SVG code similarity search. The system features automated indexing, version tracking, and comprehensive API support for seamless integration.
+
 ## [Unreleased]
 
 ### Added
-- **Automated EUI Icon Indexing Script** (`scripts/index_eui_icons.py`)
-  - Automated repository cloning and version management
-  - Automatic extraction of `typeToPathMap` from EUI repository
-  - Recursive SVG file discovery across entire repository
-  - Version tracking with `data/processed_version.txt`
-  - Smart version skipping: only skips if ALL icons for a version are indexed
-  - Support for indexing both regular icons and tokenized versions
-  - Document ID format: `{icon_name}_{release_tag}` for icons, `{icon_name}_token_{release_tag}` for tokens
-  - Comprehensive error handling and progress reporting
+- **Automated EUI Icon Indexing System** (`scripts/index_eui_icons.py`)
+  - **Production-ready automation**: Fully automated repository cloning, version detection, and icon indexing
+  - **Intelligent version management**: Automatically detects latest EUI major releases and tracks processed versions
+  - **Smart incremental indexing**: Only processes new versions or missing icons, skipping fully indexed versions
+  - **Comprehensive icon mapping**: Automatically extracts and uses `typeToPathMap` from EUI repository for accurate icon name resolution
+  - **Recursive SVG discovery**: Searches entire repository structure to find all SVG files, not limited to specific paths
+  - **Dual indexing support**: Indexes both regular icons and tokenized versions in a single pass
+  - **Robust error handling**: Continues processing even when individual icons fail, with comprehensive error reporting
+  - **Version-aware document structure**: Uses `{icon_name}_{release_tag}` format for unique document IDs while preserving clean icon names
 
 - **Token Renderer Microservice** (`token_renderer/`)
-  - Standalone Node.js service for rendering EuiToken components to SVG
-  - Decoupled from web UI for use by Python scripts
-  - REST API endpoints:
-    - `GET /health` - Health check
-    - `POST /render-token` - Render single token
-    - `POST /render-tokens` - Batch render tokens
-  - Runs on port 3002 by default (configurable via `TOKEN_RENDERER_PORT`)
+  - **Standalone service architecture**: Decoupled Node.js microservice for token rendering, enabling independent scaling
+  - **RESTful API design**: Clean REST endpoints for single and batch token rendering
+  - **Production-ready**: Health checks, error handling, and comprehensive documentation
+  - **Flexible deployment**: Configurable port and environment variables for easy integration
 
 - **Enhanced Elasticsearch Index Mapping**
-  - Added `filename` field (keyword) - Original SVG filename
-  - Added `release_tag` field (keyword) - EUI version tag (e.g., "v109.0.0")
-  - Added `icon_type` field (keyword) - "icon" or "token"
-  - Added `token_type` field (keyword) - Token type for token icons (optional)
-  - Added `svg_content` field (text, not indexed) - Full SVG content for reference
+  - **Version tracking fields**: Added `release_tag`, `icon_type`, `token_type`, and `filename` for comprehensive metadata
+  - **Future-proof design**: Supports multiple EUI versions in a single index with proper filtering capabilities
+  - **Complete document structure**: Includes `svg_content` for reference while keeping embeddings searchable
 
-- **Documentation**
-  - `docs/REINDEXING_STRATEGY.md` - Comprehensive plan for automated indexing strategy
-  - `docs/TOKEN_INDEXING_PLAN.md` - Plan for indexing tokenized icon versions
-  - `docs/IMAGE_NORMALIZATION_PLAN.md` - Plan for normalizing search images
-  - `docs/FRONTEND_SEARCH.md` - Plan for frontend search implementation
+- **Comprehensive Documentation**
+  - **Strategic planning documents**: Detailed plans for reindexing, token indexing, and image normalization
+  - **Implementation guides**: Step-by-step documentation for all major features
+  - **Troubleshooting resources**: Known issues, fixes, and setup guides
 
 ### Changed
-- **Index Mapping** (`utils/es_index_setup.py`)
-  - Updated to include version tracking fields
-  - Changed `icon_type` values from "regular" to "icon"
-  - Updated `svg_embedding` dimensions from 384 to 512 (CLIP model output)
+- **Index Mapping Architecture** (`utils/es_index_setup.py`)
+  - **Semantic field naming**: Changed `icon_type` from "regular" to "icon" for clarity
+  - **Corrected dimensions**: Updated `svg_embedding` to 512 dimensions to match CLIP model output
+  - **Enhanced metadata**: Added version tracking and icon type fields for better search filtering
 
-- **Frontend Search** (`frontend/pages/index.tsx`)
-  - Added image paste functionality (Ctrl/Cmd+V)
-  - Added file upload for image search
-  - Added SVG code paste with automatic search
-  - Added image preview using `EuiImage` component
-  - Added loading states and result filtering
-  - Improved icon display with similarity scores
+- **Frontend Search Experience** (`frontend/pages/index.tsx`)
+  - **Intuitive image search**: Paste images directly (Ctrl/Cmd+V) or upload files
+  - **Real-time SVG search**: Paste SVG code with automatic debounced search
+  - **Visual feedback**: Image preview, loading states, and similarity scores
+  - **Improved UX**: Better result display with icon names and scores
+
+- **Search API Response Format** (`frontend/pages/api/search.ts`)
+  - **Clean icon names**: Returns actual icon names (e.g., "search") instead of document IDs (e.g., "search_v109.0.0")
+  - **Enhanced metadata**: Includes `release_tag` and `icon_type` for advanced filtering
+  - **Backward compatible**: Maintains existing response structure while adding new fields
+
+- **Test Scripts** (`test_svg_search.py`)
+  - **EUI repository integration**: Uses same mapping logic as indexing script for consistency
+  - **Automatic icon resolution**: Converts icon names to filenames using `typeToPathMap`
+  - **Repository-aware**: Searches EUI repository directly instead of relying on `.svgpaths` file
 
 ### Fixed
-- **SVG Rendering Issues**
-  - Fixed issue where SVGs without explicit `fill` attributes were rendered as all-black images
-  - Added preprocessing to ensure paths have `fill="black"` and white background
-  - Fixed dimension mismatch (384 vs 512) for CLIP embeddings
+- **Critical Search API Bug**
+  - **Fixed icon name resolution**: Search API now returns correct icon names from document source instead of document IDs
+  - **Proper version handling**: Users receive clean icon names while version information is available for filtering
 
-- **Image Search**
-  - Fixed field mismatch where image search was querying `image_embedding` but SVGs were indexed in `svg_embedding`
-  - Updated search API to query `svg_embedding` for image searches (both use CLIP, compatible)
+- **SVG Rendering Pipeline**
+  - **Fixed all-black SVG issue**: Added preprocessing to ensure proper fill attributes and white backgrounds
+  - **Dimension consistency**: Corrected embedding dimensions to match CLIP model output (512 dimensions)
 
-- **Image Normalization**
-  - Implemented automatic background detection and inversion
-  - Added grayscale conversion and contrast normalization
-  - Ensures search images match indexed SVG embedding style (white background, black icon)
+- **Image Search Accuracy**
+  - **Field mapping fix**: Corrected search to use `svg_embedding` field for image searches
+  - **Normalization improvements**: Automatic background detection and inversion for better search accuracy
+  - **Cross-mode compatibility**: Works with both light and dark mode screenshots
 
 ## [2025-11-11] - Frontend Search Improvements
 
@@ -92,122 +97,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated frontend to use icon name mapping instead of direct filename usage
 - Improved search result display with icon names and scores
 
-## [2025-11-10] - Image Normalization & Token Indexing Planning
+## [2025-11-10] - Image Normalization & Advanced Planning
 
 ### Added
-- **Image Normalization** (`image_processor.py`)
-  - `normalize_search_image()` function for preprocessing search images
-  - Automatic background detection (light/dark)
-  - Automatic inversion for dark backgrounds
-  - Grayscale conversion and contrast normalization
-  - Ensures consistency with indexed SVG embeddings
+- **Intelligent Image Normalization** (`image_processor.py`)
+  - **Automatic background detection**: Detects light/dark backgrounds and adjusts accordingly
+  - **Smart inversion logic**: Automatically inverts dark backgrounds to ensure consistency
+  - **Advanced preprocessing**: Grayscale conversion, contrast normalization, and size standardization
+  - **Cross-mode compatibility**: Ensures search images match indexed SVG embeddings regardless of source mode
 
-- **Image Normalization Tests** (`test_image_normalization.py`)
-  - Test script for visualizing normalized images
-  - Comparison view (original vs normalized)
-  - Image analysis (pixel values, unique colors, etc.)
+- **Comprehensive Testing Tools**
+  - `test_image_normalization.py` - Visual comparison tool for normalized images
+  - `test_svg_normalization.py` - SVG preprocessing validation tool
+  - Both tools provide detailed analysis and side-by-side comparisons
 
-- **SVG Normalization Tests** (`test_svg_normalization.py`)
-  - Test script for visualizing SVG preprocessing
-  - Tests the same preprocessing used in `embed.py`
-  - Validates SVG-to-image conversion
-
-- **Documentation**
-  - `docs/IMAGE_NORMALIZATION_PLAN.md` - Image normalization strategy
-  - `docs/TOKEN_INDEXING_PLAN.md` - Token indexing implementation plan
+- **Strategic Planning Documentation**
+  - `docs/IMAGE_NORMALIZATION_PLAN.md` - Comprehensive image normalization strategy
+  - `docs/TOKEN_INDEXING_PLAN.md` - Detailed token indexing implementation plan
 
 ### Changed
-- **Embedding Service** (`embed.py`)
-  - Updated `/embed-image` endpoint to use `normalize_search_image()`
-  - Improved image preprocessing for better search accuracy
+- **Enhanced Embedding Service** (`embed.py`)
+  - Integrated `normalize_search_image()` into `/embed-image` endpoint
+  - Significantly improved search accuracy for real-world screenshots
 
 ### Fixed
-- Fixed issue where real-world screenshots didn't match indexed embeddings
-- Improved search accuracy for screenshots from different backgrounds (light/dark mode)
+- **Real-world screenshot compatibility**: Fixed issue where screenshots from different backgrounds didn't match indexed embeddings
+- **Cross-mode search accuracy**: Improved search results for both light and dark mode screenshots
 
-## [2025-11-10] - Initial Project Setup
+## [2025-11-10] - Initial Project Setup & Foundation
 
 ### Added
-- **Core Infrastructure**
-  - FastAPI embedding service (`embed.py`)
+- **Production-Grade Core Infrastructure**
+  - **FastAPI Embedding Service** (`embed.py`): High-performance embedding generation
     - Text embeddings using `all-MiniLM-L6-v2` (384 dimensions)
     - ELSER sparse embeddings via Elasticsearch inference API
     - Image embeddings using CLIP (`clip-ViT-B-32`, 512 dimensions)
     - SVG embeddings via SVG-to-image conversion using CLIP
-  - Next.js frontend with API routes
-  - Elasticsearch integration with vector search support
+  - **Next.js Frontend**: Modern React-based UI with comprehensive API routes
+  - **Elasticsearch Integration**: Full vector search support with KNN and hybrid search
 
-- **Elasticsearch Setup** (`utils/es_index_setup.py`)
-  - Index creation with proper mappings
-  - Support for dense vectors (384 and 512 dimensions)
-  - Support for sparse vectors (ELSER)
-  - KNN search configuration
+- **Robust Elasticsearch Setup** (`utils/es_index_setup.py`)
+  - **Comprehensive index mapping**: Support for dense vectors (384 and 512 dimensions) and sparse vectors (ELSER)
+  - **Optimized search configuration**: KNN search settings for efficient vector similarity search
+  - **Model validation**: Automatic ELSER model deployment checking
 
-- **Batch Processing Scripts**
-  - `batch_embed_svgs.py` - Batch process SVG files and generate embeddings
-  - Support for reading SVG paths from `.svgpaths` file
-  - Optional Elasticsearch indexing
-  - Skip already-indexed files with `--force` override
-  - Limit processing with `--limit` flag
+- **Efficient Batch Processing** (`batch_embed_svgs.py`)
+  - **Scalable processing**: Handles hundreds of icons efficiently
+  - **Flexible input**: Reads SVG paths from `.svgpaths` file
+  - **Smart skipping**: Automatically skips already-indexed files
+  - **Testing support**: `--limit` flag for incremental testing
 
-- **API Endpoints** (`frontend/pages/api/`)
-  - `search.ts` - Unified search API (text, image, SVG)
-  - `saveIcon.ts` - Single icon indexing
-  - `batchIndexText.ts` - Batch text description indexing
-  - `batchIndexImages.ts` - Batch image embedding indexing
-  - `batchIndexSVG.ts` - Batch SVG embedding indexing
-  - `getAllIndexedIcons.ts` - List all indexed icons
+- **Comprehensive API Endpoints** (`frontend/pages/api/`)
+  - **Unified search API**: Single endpoint for text, image, and SVG search
+  - **Batch indexing APIs**: Efficient bulk processing for all embedding types
+  - **Management APIs**: Icon listing and individual icon indexing
 
-- **Icon Rendering Utilities**
-  - `frontend/utils/icon_renderer.ts` - React-based icon rendering
-  - `utils/icon_renderer.js` - Node.js icon rendering utilities
-  - SVG normalization and standardization
+- **Icon Rendering System**
+  - **React-based rendering**: Server-side icon rendering for frontend
+  - **Node.js utilities**: Standalone icon rendering for batch processing
+  - **SVG normalization**: Consistent size and format standardization
 
-- **Testing & Diagnostics**
-  - `test_elasticsearch_setup.py` - Comprehensive Elasticsearch validation
-  - `test_svg_search.py` - SVG search testing
-  - `test_image_search.py` - Image search testing
-  - `test_svg_conversion.py` - SVG conversion testing
-  - `diagnose_embeddings.py` - Embedding diagnostics (duplicates, similarity)
-  - `check_index.py` - Index document count checker
+- **Extensive Testing & Diagnostics Suite**
+  - **Elasticsearch validation**: Comprehensive setup and functionality testing
+  - **Search testing**: Dedicated scripts for SVG and image search
+  - **Diagnostic tools**: Embedding analysis, duplicate detection, similarity checking
+  - **Index management**: Document counting and health checking
 
-- **Image Processing** (`image_processor.py`)
-  - Image normalization utilities
-  - Image-to-bytes conversion
-  - Size standardization
+- **Image & SVG Processing**
+  - **Image normalization**: Standardization utilities for consistent embeddings
+  - **SVG processing**: ViewBox extraction and normalization
+  - **Format conversion**: Seamless conversion between formats
 
-- **SVG Processing** (`svg_processor.py`)
-  - SVG normalization utilities
-  - ViewBox extraction and standardization
+- **Comprehensive Documentation**
+  - **Project planning**: High-level architecture and implementation plans
+  - **Setup guides**: Detailed instructions for all components
+  - **Troubleshooting**: Common issues, fixes, and best practices
+  - **Known issues**: Documented problems and solutions
 
-- **Documentation**
-  - `README.md` - Project overview and setup instructions
-  - `docs/PROJECT_PLAN.md` - High-level project plan and architecture
-  - `docs/IMPLEMENTATION_PLAN.md` - Detailed implementation plan
-  - `docs/SETUP_GUIDE.md` - Detailed setup instructions
-  - `docs/TROUBLESHOOTING.md` - Common issues and solutions
-  - `docs/KNOWN_ISSUES_FIXES.md` - Known issues and their fixes
-
-- **Configuration**
-  - `.gitignore` - Comprehensive ignore patterns
-  - `.svgpaths` - SVG file paths for batch processing
-  - `requirements.txt` - Python dependencies
-  - `frontend/package.json` - Node.js dependencies
+- **Production Configuration**
+  - **Environment management**: Comprehensive `.gitignore` and environment variable support
+  - **Dependency management**: Clear Python and Node.js dependency specifications
+  - **Path management**: Flexible SVG path configuration
 
 ### Features
-- **Multi-Modal Search**
-  - Text-based semantic search with dense and sparse embeddings
-  - Image-based visual similarity search
-  - SVG code-based structural search
+- **Multi-Modal Search Capabilities**
+  - **Text search**: Semantic search with hybrid dense/sparse embeddings
+  - **Image search**: Visual similarity search using CLIP embeddings
+  - **SVG search**: Structural similarity search via normalized SVG embeddings
 
-- **Hybrid Search**
-  - Combines dense vector search (KNN) with sparse vector search (ELSER)
-  - Improved relevance for text queries
+- **Advanced Search Features**
+  - **Hybrid search**: Combines dense vector search (KNN) with sparse vector search (ELSER) for optimal relevance
+  - **Cross-modal compatibility**: Image and SVG searches use compatible embeddings
 
-- **Batch Indexing**
-  - Efficient bulk processing of hundreds of icons
-  - Progress tracking and error reporting
-  - Resume capability (skip already-indexed files)
+- **Enterprise-Grade Batch Processing**
+  - **Efficient bulk operations**: Process hundreds of icons with progress tracking
+  - **Resume capability**: Automatically skips already-processed files
+  - **Error resilience**: Continues processing even when individual items fail
 
 ## Technical Details
 
