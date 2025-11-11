@@ -1,62 +1,286 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, ChangeEvent } from "react";
 import {
-  EuiButtonEmpty,
-  EuiCopy,
   EuiFlexGrid,
   EuiFlexGroup,
   EuiFlexItem,
   EuiIcon,
-  EuiLink,
-  EuiPanel,
   EuiSearchBar,
+  EuiFilePicker,
+  EuiSpacer,
+  EuiText,
+  EuiLoadingSpinner,
+  EuiFieldText,
+  EuiImage,
+  EuiToken,
 } from "@elastic/eui";
 import { css } from "@emotion/react";
 import PageTemplate from "../components/pageTemplate";
 import { GetServerSideProps } from "next";
 import { client, INDEX_NAME } from "../client/es";
-
+import { typeToPathMap } from "../utils/file_to_name";
+const getIconName = (icon: string) => {
+  return (
+    Object.entries(typeToPathMap).find(([key, value]) => value === icon)?.[0] ||
+    null
+  );
+};
 type HomePageProps = {
   iconTypes: string[];
 };
 
+interface SearchResult {
+  icon_name: string;
+  score: number;
+  descriptions?: string[];
+}
+
 export default function HomePage({ iconTypes }: HomePageProps) {
-  const [searchTerm, setSearchTerm] = useState<string | null>(null);
+  // const [searchTerm, setSearchTerm] = useState<string | null>(null);
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(
+    null
+  );
+  // const [searchType, setSearchType] = useState<"text" | "image">("text");
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchImage, setSearchImage] = useState<string | null>(null);
+  const [searchImageDataUrl, setSearchImageDataUrl] = useState<string | null>(null);
+  const [svgCode, setSvgCode] = useState<string>("");
+  
+  // Convert image file to base64 (for API) and data URL (for display)
+  const imageToBase64 = (file: File): Promise<{ base64: string; dataUrl: string }> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        // Remove data:image/...;base64, prefix for API
+        const base64 = result.split(",")[1];
+        // Keep full data URL for display
+        const dataUrl = result;
+        resolve({ base64, dataUrl });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Perform image search
+  const performImageSearch = async (imageBase64: string) => {
+    setIsSearching(true);
+    try {
+      const response = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "image",
+          query: imageBase64,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Search failed");
+      }
+
+      const data = await response.json();
+      console.log("search results", data);
+      setSearchResults(data.results || []);
+      // setSearchType("image");
+    } catch (error) {
+      console.error("Error performing image search:", error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Perform SVG search
+  const performSVGSearch = async (svgContent: string) => {
+    if (!svgContent.trim()) {
+      setSearchResults(null);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const response = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "svg",
+          query: svgContent,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Search failed");
+      }
+
+      const data = await response.json();
+      console.log("SVG search results", data);
+      setSearchResults(data.results || []);
+    } catch (error) {
+      console.error("Error performing SVG search:", error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Effect to search when SVG code changes
+  useEffect(() => {
+    // Debounce SVG search to avoid too many API calls while typing
+    const timeoutId = setTimeout(() => {
+      if (svgCode.trim()) {
+        performSVGSearch(svgCode);
+      } else {
+        setSearchResults(null);
+      }
+    }, 500); // 500ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [svgCode]);
+
+  // Handle image paste
+  useEffect(() => {
+    const handlePaste = async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.indexOf("image") !== -1) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file) {
+            const { base64, dataUrl } = await imageToBase64(file);
+            setSearchImage(base64);
+            setSearchImageDataUrl(dataUrl);
+            await performImageSearch(base64);
+          }
+          break;
+        }
+      }
+    };
+
+    window.addEventListener("paste", handlePaste);
+    return () => {
+      window.removeEventListener("paste", handlePaste);
+    };
+  }, []);
+
+  // Handle file upload
+  const handleFileUpload = async (files: FileList) => {
+    console.log("file upload", files);
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+
+    if (!file.type.startsWith("image/")) {
+      alert("Please select an image file");
+      return;
+    }
+
+    try {
+      const { base64, dataUrl } = await imageToBase64(file);
+      setSearchImage(base64);
+      setSearchImageDataUrl(dataUrl);
+      await performImageSearch(base64);
+    } catch (error) {
+      console.error("Error uploading file:", error);
+      alert("Error uploading image");
+    }
+  };
+
   return (
     <PageTemplate>
-      <EuiSearchBar
+      {/*<EuiSearchBar
         box={{ placeholder: "Search for icons..." }}
         onChange={({ query }) => {
-          setSearchTerm(query?.text || "");
+          // setSearchTerm(query?.text || "");
+          // Reset image search when text search changes
+          if (query?.text) {
+            setSearchResults(null);
+            // setSearchType("text");
+            setSearchImage(null);
+          }
+        }}
+      />*/}
+
+      <EuiFieldText
+        placeholder="Paste SVG code"
+        value={svgCode}
+        onChange={(e) => {
+          console.log("paste event e");
+          return setSvgCode(e.target.value);
         }}
       />
-      <EuiFlexGrid
-        alignItems="stretch"
-        columns={4}
-        gutterSize="l"
-        style={{ marginTop: 24 }}
-      >
-        {iconTypes.map((iconType) => (
-          <EuiFlexItem key={iconType}>
-            <EuiCopy
-              textToCopy={iconType}
-              afterMessage={`${iconType} copied`}
-              tooltipProps={{ display: "block" }}
-            >
-              {(copy) => (
-                <EuiPanel hasShadow={false} hasBorder={false} paddingSize="s">
-                  <EuiIcon
-                    className="eui-alignMiddle"
-                    type={iconType}
-                    size="xl"
-                  />{" "}
-                  &emsp;{" "}
-                  <EuiLink href={`/icon/${iconType}`}>{iconType}</EuiLink>
-                </EuiPanel>
-              )}
-            </EuiCopy>
-          </EuiFlexItem>
-        ))}
-      </EuiFlexGrid>
+
+      <EuiSpacer size="m" />
+
+      {/* Image upload option */}
+      <EuiFilePicker
+        id="image-upload"
+        accept="image/*"
+        onChange={handleFileUpload}
+        display="large"
+        fullWidth
+        initialPromptText="Upload image"
+      />
+
+      {searchImageDataUrl && (
+        <>
+          <EuiSpacer size="m" />
+          <EuiImage
+            src={searchImageDataUrl}
+            alt="Search image"
+            size="l"
+            allowFullScreen
+          />
+          <EuiSpacer size="s" />
+          <EuiText size="s" color="subdued">
+            Searching with this image...
+          </EuiText>
+        </>
+      )}
+
+      {isSearching && (
+        <>
+          <EuiSpacer size="m" />
+          <EuiLoadingSpinner size="l" />
+          <EuiText size="s" color="subdued">
+            Searching...
+          </EuiText>
+        </>
+      )}
+
+      {searchResults && !isSearching && (
+        <>
+          <EuiSpacer size="m" />
+          <EuiText>
+            <h3>Search Results ({searchResults.length})</h3>
+          </EuiText>
+        </>
+      )}
+
+      <EuiSpacer size="l" />
+
+      // make the ui less screwed up
+      // clean up all this UI code
+      // re-index the embeddings with the latest EUI
+      // add a new field to handle tokenized icons
+
+      {searchResults && searchResults.length > 0 && (
+        <EuiFlexGrid columns={4}>
+          {searchResults.map(result => getIconName(result.icon_name)).filter(r => !!r).map((result) => (
+            <EuiFlexGroup key={result}>
+              <EuiFlexItem grow={false}>
+                <EuiIcon type={result} size="xl" />
+              </EuiFlexItem>
+              <EuiFlexItem grow={false}>
+                <EuiText size="s">{result}</EuiText>
+              </EuiFlexItem>
+            </EuiFlexGroup>
+          ))}
+        </EuiFlexGrid>
+      )}
     </PageTemplate>
   );
 }
