@@ -3,6 +3,7 @@ import { client, INDEX_NAME } from "../../client/es";
 import fetch from "node-fetch";
 import { renderIconToImage } from "../../utils/icon_renderer";
 import fs from "fs/promises";
+import { verifyAdminAuth } from "../../lib/auth";
 
 interface BatchIndexImagesRequest {
   iconNames: string[];
@@ -14,6 +15,13 @@ export default async function handler(
 ) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  // Optional admin authentication (only enforced if ADMIN_API_KEY is set)
+  try {
+    verifyAdminAuth(req);
+  } catch (error: any) {
+    return res.status(401).json({ error: error.message || "Unauthorized" });
   }
 
   if (!client) {

@@ -556,3 +556,13 @@ async def search(request: SearchRequest):
         results=results,
         total=total
     )
+
+# Start the server if run directly
+if __name__ == "__main__":
+    import uvicorn
+    print(f"Starting EUI Icon Embeddings API server on {PYTHON_API_HOST}:{PYTHON_API_PORT}")
+    print(f"API keys configured: {len(_valid_api_keys)} key(s)")
+    print(f"Elasticsearch: {'configured' if es_client else 'not configured'}")
+    print(f"Health check: http://{PYTHON_API_HOST}:{PYTHON_API_PORT}/health")
+    print(f"API docs: http://{PYTHON_API_HOST}:{PYTHON_API_PORT}/docs")
+    uvicorn.run(app, host=PYTHON_API_HOST, port=PYTHON_API_PORT)
