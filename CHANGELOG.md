@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **MCP Server** (`mcp_server.py`)
+  - Model Context Protocol server for exposing EUI icon search capabilities to AI agents
+  - Provides two tools: `search_by_svg` and `search_by_image`
+  - Supports `icon_type` parameter to distinguish between icons and tokens
+  - Supports `fields` parameter to specify which embedding fields to search
+  - Defaults to `icon_svg_embedding` for SVG searches and `icon_image_embedding` for image searches
+  - Automatically selects token fields when `icon_type` is set to "token"
+  - Includes signal handling for graceful shutdown on Ctrl+C
+  - Logs startup information and tool calls to stderr
+  - Falls back to CLI mode when MCP SDK is not available
+
+- **MCP Server Test Script** (`test_mcp_server.py`)
+  - Standalone test script for verifying MCP server functionality
+  - Supports testing SVG search with `--svg-file` or `--svg-string` arguments
+  - Supports testing image search with `--image-file` argument
+  - Supports `--icon-type` parameter to specify icon or token search
+  - Supports field override flags: `--icon-image`, `--icon-svg`, `--token-image`, `--token-svg`
+  - Provides test results summary with pass/fail status
+
+- **MCP Server Documentation** (`docs/MCP_SERVER.md`)
+  - Installation and configuration instructions
+  - Tool descriptions and usage examples
+  - Integration guide for Claude Desktop and other MCP clients
+  - Testing guide with multiple methods
+  - Troubleshooting section
+
+- **MCP Server Configuration Example** (`mcp_server_config_example.json`)
+  - Example configuration file for Claude Desktop integration
+
 - **Automated EUI Icon Indexing Script** (`scripts/index_eui_icons.py`)
   - Automated repository cloning and version detection
   - Extracts `typeToPathMap` from EUI repository for icon name resolution
@@ -60,6 +89,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `docs/FRONTEND_SEARCH.md` - Plan for frontend search implementation
 
 ### Changed
+- **Dependencies** (`requirements.txt`)
+  - Added `mcp>=0.9.0` dependency for MCP server functionality
+
+- **Documentation** (`README.md`)
+  - Added MCP Server section with quick start instructions and link to detailed documentation
+
 - **Index Mapping** (`utils/es_index_setup.py`)
   - Changed `icon_type` values from "regular" to "icon"
   - Updated embedding fields to separate icon and token embeddings

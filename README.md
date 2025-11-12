@@ -183,16 +183,43 @@ This validates:
 - **[PROJECT_PLAN.md](docs/PROJECT_PLAN.md)** - High-level project plan and architecture
 - **[IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)** - Detailed implementation plan and task breakdown
 
+## MCP Server
+
+The project includes an MCP (Model Context Protocol) server that allows AI agents to search for icons using SVG code, image data, or text descriptions.
+
+**Quick Start:**
+```bash
+# Install MCP SDK
+pip install mcp
+
+# Run the MCP server
+python mcp_server.py
+```
+
+**Configuration:**
+Set environment variables:
+- `SEARCH_API_URL` - Search API endpoint (default: http://localhost:3001/api/search)
+- `EMBEDDING_SERVICE_URL` - Embedding service URL (default: http://localhost:8000)
+
+**Tools Available:**
+- `search_by_svg` - Search using SVG code
+- `search_by_image` - Search using base64 image data
+- `search_by_text` - Search using text descriptions
+
+See [docs/MCP_SERVER.md](docs/MCP_SERVER.md) for detailed documentation.
+
 ## File Structure
 
 ```
 eui-embeddings/
 ├── embed.py                    # FastAPI embedding service
+├── mcp_server.py               # MCP server for AI agents
 ├── image_processor.py          # Image normalization utilities
 ├── svg_processor.py            # SVG normalization utilities
 ├── docs/
 │   ├── PROJECT_PLAN.md         # High-level project plan
-│   └── IMPLEMENTATION_PLAN.md  # Detailed implementation plan
+│   ├── IMPLEMENTATION_PLAN.md  # Detailed implementation plan
+│   └── MCP_SERVER.md           # MCP server documentation
 ├── utils/
 │   ├── es_index_setup.py       # Elasticsearch index setup
 │   └── icon_renderer.js        # Icon rendering utilities (Node.js)

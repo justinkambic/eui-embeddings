@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "eui-icon-search": {
+      "command": "python",
+      "args": [
+        "/absolute/path/to/eui-embeddings/mcp_server.py"
+      ],
+      "env": {
+        "SEARCH_API_URL": "http://localhost:3001/api/search",
+        "EMBEDDING_SERVICE_URL": "http://localhost:8000",
+        "ELASTICSEARCH_ENDPOINT": "https://your-cluster.es.amazonaws.com",
+        "ELASTICSEARCH_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+

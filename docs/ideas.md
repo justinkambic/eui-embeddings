@@ -1,0 +1,2 @@
+- make the next API rely on the python service for searching. Replicate and move the search features into the python service.
+- extend the python service to allow direct comparisons between SVG stored in the index and provided by the user for higher fidelity resolution.
