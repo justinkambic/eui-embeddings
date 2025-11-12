@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [Unreleased]
+## [2025-11-12] - MCP Server and Frontend Enhancements
 
 ### Added
 - **MCP Server** (`mcp_server.py`)
@@ -38,6 +38,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **MCP Server Configuration Example** (`mcp_server_config_example.json`)
   - Example configuration file for Claude Desktop integration
 
+- **Frontend Component Refactoring**
+  - Extracted main page content into `frontend/components/mainPage/content.tsx`
+  - Added `frontend/pages/_app.tsx` with EuiProvider wrapper for EUI context
+  - Replaced EuiFlexGrid with EuiBasicTable for search results display
+  - Added field selection UI with checkbox group for choosing embedding fields
+  - Added conditional column rendering based on selected embedding fields
+  - Added SVG rendering display when SVG code is pasted
+
+### Changed
+- **Dependencies** (`requirements.txt`)
+  - Added `mcp>=0.9.0` dependency for MCP server functionality
+
+- **Documentation** (`README.md`)
+  - Added MCP Server section with quick start instructions and link to detailed documentation
+
+- **Search API** (`frontend/pages/api/search.ts`)
+  - Added `fields` parameter to specify which embedding fields to search
+  - Updated to search across multiple embedding fields based on selection
+  - Uses single KNN query for one field, array of queries for multiple fields
+  - Added `min_score` filter (0.75) to return only high-confidence results
+  - Removed `icon_type` filter from KNN queries (field selection handles filtering)
+
+- **Frontend Search** (`frontend/components/mainPage/content.tsx`)
+  - Added field selection checkbox group for choosing embedding fields to search
+  - Replaced grid layout with EuiBasicTable for structured results display
+  - Added separate Icon and Token columns that render conditionally based on selected fields
+  - Added pagination support with configurable page sizes
+  - Added SVG rendering display when SVG code is pasted
+  - Results maintain Elasticsearch score-based ordering
+
+## [2025-11-11] - Token Rendering and Indexing Improvements
+
+### Added
 - **Automated EUI Icon Indexing Script** (`scripts/index_eui_icons.py`)
   - Automated repository cloning and version detection
   - Extracts `typeToPathMap` from EUI repository for icon name resolution
@@ -74,27 +107,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `token_svg_embedding` (dense_vector, 512 dims)
   - Added `token_svg_content` field (text, not indexed) - Token SVG/HTML content
 
-- **Frontend Component Refactoring**
-  - Extracted main page content into `frontend/components/mainPage/content.tsx`
-  - Added `frontend/pages/_app.tsx` with EuiProvider wrapper for EUI context
-  - Replaced EuiFlexGrid with EuiBasicTable for search results display
-  - Added field selection UI with checkbox group for choosing embedding fields
-  - Added conditional column rendering based on selected embedding fields
-  - Added SVG rendering display when SVG code is pasted
+- **Frontend Search UI** (`frontend/pages/index.tsx`)
+  - Image paste support (Ctrl/Cmd+V)
+  - File upload for image search
+  - SVG code paste with debounced search
+  - Image preview display
+  - Filtered results display with similarity scores
+  - Loading states and error handling
+
+- **File Name Mapping** (`frontend/utils/file_to_name.ts`)
+  - Complete mapping of EUI icon filenames to icon names
+  - 524 icon mappings extracted from EUI codebase
 
 - **Documentation**
   - `docs/REINDEXING_STRATEGY.md` - Plan for automated indexing strategy
   - `docs/TOKEN_INDEXING_PLAN.md` - Plan for indexing tokenized icon versions
-  - `docs/IMAGE_NORMALIZATION_PLAN.md` - Plan for normalizing search images
-  - `docs/FRONTEND_SEARCH.md` - Plan for frontend search implementation
+  - `docs/FRONTEND_SEARCH.md` - Frontend search implementation plan
 
 ### Changed
-- **Dependencies** (`requirements.txt`)
-  - Added `mcp>=0.9.0` dependency for MCP server functionality
-
-- **Documentation** (`README.md`)
-  - Added MCP Server section with quick start instructions and link to detailed documentation
-
 - **Index Mapping** (`utils/es_index_setup.py`)
   - Changed `icon_type` values from "regular" to "icon"
   - Updated embedding fields to separate icon and token embeddings
@@ -107,21 +137,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added option to save rendered images to disk with `--save-images` flag
   - Updated document structure to include all embedding fields
 
-- **Search API** (`frontend/pages/api/search.ts`)
-  - Added `fields` parameter to specify which embedding fields to search
-  - Updated to search across multiple embedding fields based on selection
-  - Uses single KNN query for one field, array of queries for multiple fields
-  - Added `min_score` filter (0.75) to return only high-confidence results
-  - Removed `icon_type` filter from KNN queries (field selection handles filtering)
-
-- **Frontend Search** (`frontend/components/mainPage/content.tsx`)
-  - Added field selection checkbox group for choosing embedding fields to search
-  - Replaced grid layout with EuiBasicTable for structured results display
-  - Added separate Icon and Token columns that render conditionally based on selected fields
-  - Added pagination support with configurable page sizes
-  - Added SVG rendering display when SVG code is pasted
-  - Results maintain Elasticsearch score-based ordering
-
 - **Search API Response** (`frontend/pages/api/search.ts`)
   - Returns `icon_name` from document source instead of document ID
   - Added `release_tag` and `icon_type` fields to response
@@ -131,6 +146,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated `--icon-name` flag to use EUI repository mapping
   - Extracts `typeToPathMap` from EUI repository to convert icon names to filenames
   - Searches EUI repository recursively for SVG files
+
+- Updated frontend to use icon name mapping instead of direct filename usage
+- Improved search result display with icon names and scores
 
 ### Fixed
 - **Search API Bug**
@@ -149,29 +167,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **EUI Styling**
   - Added EuiProvider wrapper in `_app.tsx` to ensure EUI CSS classes (including `.euiScreenReaderOnly`) are properly applied
-
-## [2025-11-11] - Frontend Search Improvements
-
-### Added
-- **Frontend Search UI** (`frontend/pages/index.tsx`)
-  - Image paste support (Ctrl/Cmd+V)
-  - File upload for image search
-  - SVG code paste with debounced search
-  - Image preview display
-  - Filtered results display with similarity scores
-  - Loading states and error handling
-
-- **File Name Mapping** (`frontend/utils/file_to_name.ts`)
-  - Complete mapping of EUI icon filenames to icon names
-  - 524 icon mappings extracted from EUI codebase
-
-- **Documentation**
-  - `docs/FRONTEND_SEARCH.md` - Frontend search implementation plan
-  - `docs/REINDEXING_STRATEGY.md` - Automated indexing strategy plan
-
-### Changed
-- Updated frontend to use icon name mapping instead of direct filename usage
-- Improved search result display with icon names and scores
 
 ## [2025-11-10] - Image Normalization & Token Indexing Planning
 
