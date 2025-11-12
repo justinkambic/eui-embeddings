@@ -5,6 +5,64 @@ All notable changes to the EUI Icon Embeddings project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2025-11-12] - Phase 4: API Key Authentication
+
+### Added
+- **API Key Management Script** (`scripts/manage-api-keys.sh`)
+  - Generate secure random API keys (32+ characters)
+  - List all active API keys (masked for security)
+  - Add existing API keys to Google Secret Manager
+  - Remove API keys from Secret Manager
+  - Full integration with `gcloud` CLI for Secret Manager operations
+  - Supports multiple authentication methods and key formats
+
+- **Admin Endpoint Authentication** (`frontend/lib/auth.ts`)
+  - `verifyAdminAuth()` function for optional admin authentication
+  - Supports Bearer token, custom header, or query parameter authentication
+  - Only enforced when `ADMIN_API_KEY` environment variable is set (backward compatible)
+  - Added to all batch indexing endpoints (`/api/batchIndexImages`, `/api/batchIndexSVG`, `/api/batchIndexText`)
+
+- **API Key Rotation Documentation** (`docs/API_KEY_ROTATION.md`)
+  - Comprehensive guide for rotating API keys
+  - Step-by-step rotation process with zero-downtime procedures
+  - Emergency rotation procedures for compromised keys
+  - Best practices and security recommendations
+  - Troubleshooting guide for common issues
+
+- **Verification and Testing**
+  - `scripts/verify-phase4.sh` - Automated verification script (25 checks)
+  - `test_phase4_api_keys.py` - Python test suite for API key authentication
+  - Comprehensive verification of all Phase 4 requirements
+
+- **Documentation**
+  - `docs/PHASE4_API_KEY_IMPLEMENTATION.md` - Implementation summary and architecture
+  - `docs/PHASE4_VERIFICATION_CHECKLIST.md` - Detailed verification checklist with testing procedures
+  - `docs/PHASE4_QUICK_TEST.md` - Quick reference guide for fast verification
+
+### Changed
+- **Python API** (`embed.py`)
+  - Added startup block to allow running directly with `python embed.py`
+  - Prints startup information including API key count, Elasticsearch status, and service URLs
+  - Improved user experience when starting the server locally
+
+- **Frontend Admin Endpoints** (`frontend/pages/api/batchIndex*.ts`)
+  - Added optional authentication to all batch indexing endpoints
+  - Admin endpoints now support multiple authentication methods
+  - Backward compatible - only enforced when `ADMIN_API_KEY` is configured
+
+### Security
+- API key authentication already implemented (from Phase 1/2)
+- Admin endpoints can now be protected with separate authentication
+- API keys stored securely in Google Secret Manager
+- Strong key generation (32+ character random keys)
+- Health endpoint correctly excluded from authentication
+
+### Notes
+- API key authentication was already implemented in previous phases
+- Phase 4 focused on management tools, admin endpoint protection, and documentation
+- All authentication is backward compatible - works without keys for development
+- Admin authentication is optional and only enforced when configured
+
 ## [2025-11-12] - Phase 3: HTTPS/SSL Configuration
 
 ### Added
