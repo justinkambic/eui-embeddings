@@ -30,15 +30,15 @@ export default async function handler(
     const searchUrl = `${pythonApiUrl}/search`;
 
     const response = await fetch(searchUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         type,
         query,
         icon_type,
         fields,
       }),
-    });
+      });
 
     if (!response.ok) {
       // Read response body once
