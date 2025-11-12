@@ -15,9 +15,16 @@ npm install
 npm start
 ```
 
+Or for development with auto-restart on file changes:
+```bash
+npm run dev
+```
+
 Or set a custom port:
 ```bash
 TOKEN_RENDERER_PORT=3002 npm start
+# or for development:
+TOKEN_RENDERER_PORT=3002 npm run dev
 ```
 
 ## API Endpoints

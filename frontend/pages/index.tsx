@@ -12,6 +12,8 @@ import {
   EuiFieldText,
   EuiImage,
   EuiToken,
+  EuiButtonGroup,
+  EuiFormRow,
 } from "@elastic/eui";
 import { css } from "@emotion/react";
 import PageTemplate from "../components/pageTemplate";
@@ -32,6 +34,8 @@ interface SearchResult {
   icon_name: string;
   score: number;
   descriptions?: string[];
+  icon_type?: "icon" | "token";
+  release_tag?: string;
 }
 
 export default function HomePage({ iconTypes }: HomePageProps) {
@@ -44,6 +48,7 @@ export default function HomePage({ iconTypes }: HomePageProps) {
   const [searchImage, setSearchImage] = useState<string | null>(null);
   const [searchImageDataUrl, setSearchImageDataUrl] = useState<string | null>(null);
   const [svgCode, setSvgCode] = useState<string>("");
+  const [iconTypeFilter, setIconTypeFilter] = useState<"icon" | "token" | undefined>("icon");
   
   // Convert image file to base64 (for API) and data URL (for display)
   const imageToBase64 = (file: File): Promise<{ base64: string; dataUrl: string }> => {
@@ -72,6 +77,7 @@ export default function HomePage({ iconTypes }: HomePageProps) {
         body: JSON.stringify({
           type: "image",
           query: imageBase64,
+          icon_type: iconTypeFilter,
         }),
       });
 
@@ -106,6 +112,7 @@ export default function HomePage({ iconTypes }: HomePageProps) {
         body: JSON.stringify({
           type: "svg",
           query: svgContent,
+          icon_type: iconTypeFilter,
         }),
       });
 
@@ -124,7 +131,7 @@ export default function HomePage({ iconTypes }: HomePageProps) {
     }
   };
 
-  // Effect to search when SVG code changes
+  // Effect to search when SVG code or icon type filter changes
   useEffect(() => {
     // Debounce SVG search to avoid too many API calls while typing
     const timeoutId = setTimeout(() => {
@@ -136,7 +143,7 @@ export default function HomePage({ iconTypes }: HomePageProps) {
     }, 500); // 500ms debounce
 
     return () => clearTimeout(timeoutId);
-  }, [svgCode]);
+  }, [svgCode, iconTypeFilter]);
 
   // Handle image paste
   useEffect(() => {
@@ -164,7 +171,8 @@ export default function HomePage({ iconTypes }: HomePageProps) {
     return () => {
       window.removeEventListener("paste", handlePaste);
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [iconTypeFilter]);
 
   // Handle file upload
   const handleFileUpload = async (files: FileList) => {
@@ -189,8 +197,55 @@ export default function HomePage({ iconTypes }: HomePageProps) {
     }
   };
 
+  // Icon type filter options
+  const iconTypeOptions = [
+    {
+      id: "all",
+      label: "All",
+    },
+    {
+      id: "icon",
+      label: "Icons",
+    },
+    {
+      id: "token",
+      label: "Tokens",
+    },
+  ];
+
+  const selectedIconTypeId = iconTypeFilter || "icon";
+
+  const handleIconTypeChange = (optionId: string) => {
+    if (optionId === "all") {
+      setIconTypeFilter(undefined);
+    } else {
+      setIconTypeFilter(optionId as "icon" | "token");
+    }
+    
+    // Re-trigger search if we have active search
+    if (searchImage) {
+      performImageSearch(searchImage);
+    } else if (svgCode.trim()) {
+      performSVGSearch(svgCode);
+    }
+  };
+
   return (
     <PageTemplate>
+      {/* Icon Type Filter */}
+      <EuiFormRow label="Search type" helpText="Filter results by icon type">
+        <EuiButtonGroup
+          legend="Icon type filter"
+          options={iconTypeOptions}
+          idSelected={selectedIconTypeId}
+          onChange={handleIconTypeChange}
+          color="primary"
+          isFullWidth
+        />
+      </EuiFormRow>
+
+      <EuiSpacer size="m" />
+
       {/*<EuiSearchBar
         box={{ placeholder: "Search for icons..." }}
         onChange={({ query }) => {
@@ -262,23 +317,39 @@ export default function HomePage({ iconTypes }: HomePageProps) {
 
       <EuiSpacer size="l" />
 
-      // make the ui less screwed up
-      // clean up all this UI code
-      // re-index the embeddings with the latest EUI
-      // add a new field to handle tokenized icons
-
       {searchResults && searchResults.length > 0 && (
         <EuiFlexGrid columns={4}>
-          {searchResults.map(result => getIconName(result.icon_name)).filter(r => !!r).map((result) => (
-            <EuiFlexGroup key={result}>
-              <EuiFlexItem grow={false}>
-                <EuiIcon type={result} size="xl" />
-              </EuiFlexItem>
-              <EuiFlexItem grow={false}>
-                <EuiText size="s">{result}</EuiText>
-              </EuiFlexItem>
-            </EuiFlexGroup>
-          ))}
+          {searchResults.map((result) => {
+            console.log('result', result);
+            const iconName = result.icon_name;
+            // const iconName = getIconName(result.icon_name);
+            // if (!iconName) return null;
+            
+            return (
+              <EuiFlexGroup key={`${iconName}-${result.icon_type || 'unknown'}`} direction="column" gutterSize="s">
+                <EuiFlexItem grow={false}>
+                  {result.icon_type === "token" ? (
+                    <EuiToken iconType={iconName} size="m" />
+                  ) : (
+                    <EuiIcon type={iconName} size="xl" />
+                  )}
+                </EuiFlexItem>
+                <EuiFlexItem grow={false}>
+                  <EuiText size="s">{iconName}</EuiText>
+                  {result.icon_type && (
+                    <EuiText size="xs" color="subdued">
+                      {result.icon_type}
+                    </EuiText>
+                  )}
+                  {result.score && (
+                    <EuiText size="xs" color="subdued">
+                      Score: {result.score.toFixed(3)}
+                    </EuiText>
+                  )}
+                </EuiFlexItem>
+              </EuiFlexGroup>
+            );
+          })}
         </EuiFlexGrid>
       )}
     </PageTemplate>

@@ -31,13 +31,15 @@ import json
 import re
 import subprocess
 import argparse
+import io
 from typing import List, Dict, Optional, Tuple
 from pathlib import Path
 import requests
 from elasticsearch import Elasticsearch
+from PIL import Image
 
 # Configuration
-EMBEDDING_SERVICE_URL = os.getenv("EMBEDDING_SERVICE_URL", "http://localhost:8000/embed-svg")
+EMBEDDING_SERVICE_URL = os.getenv("EMBEDDING_SERVICE_URL", "http://localhost:8000")
 TOKEN_RENDERER_URL = os.getenv("TOKEN_RENDERER_URL", "http://localhost:3002/render-token")
 INDEX_NAME = "icons"
 VERSION_FILE = "data/processed_version.txt"
@@ -329,9 +331,13 @@ def generate_embedding(svg_content: str, service_url: str = None) -> Optional[Li
     """Generate embedding for SVG content"""
     if service_url is None:
         service_url = EMBEDDING_SERVICE_URL
+    
+    # Use /embed-svg endpoint
+    embed_url = f"{service_url.rstrip('/')}/embed-svg"
+    
     try:
         response = requests.post(
-            service_url,
+            embed_url,
             json={"svg_content": svg_content},
             headers={"Content-Type": "application/json"},
             timeout=30
@@ -344,24 +350,116 @@ def generate_embedding(svg_content: str, service_url: str = None) -> Optional[Li
         return None
 
 
-def render_token_svg(icon_name: str, token_type: str = "string", service_url: str = None) -> Optional[str]:
-    """Render EuiToken to SVG string using token renderer service"""
+def generate_embedding_from_image(image_bytes: bytes, service_url: str = None) -> Optional[List[float]]:
+    """Generate embedding for image bytes using /embed-image endpoint"""
+    import io
+    
     if service_url is None:
-        service_url = TOKEN_RENDERER_URL
+        service_url = EMBEDDING_SERVICE_URL
+    
+    # Use /embed-image endpoint which expects multipart form data
+    embed_url = f"{service_url.rstrip('/')}/embed-image"
     
     try:
+        # Create a file-like object from bytes
+        files = {'file': ('token.png', io.BytesIO(image_bytes), 'image/png')}
+        response = requests.post(
+            embed_url,
+            files=files,
+            timeout=30
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data.get("embeddings")
+    except requests.exceptions.RequestException as e:
+        print(f"  ✗ Error generating embedding from image: {e}")
+        return None
+
+
+def render_icon_image(icon_name: str, component_type: str, service_url: str = None, size: str = None) -> Optional[bytes]:
+    """Render EuiIcon or EuiToken to base64 PNG image using icon renderer service
+    Returns decoded image bytes (not base64 string)
+    
+    Args:
+        icon_name: Icon name to render
+        component_type: 'icon' for EuiIcon or 'token' for EuiToken (required)
+        service_url: Renderer service base URL (default: derived from TOKEN_RENDERER_URL)
+                     If provided, should be base URL like http://localhost:3002, not full endpoint
+        size: Icon/token size (e.g., 's', 'm', 'l', 'xl', 'xxl'). If None, uses service default.
+    """
+    if component_type not in ('icon', 'token'):
+        raise ValueError(f'component_type must be "icon" or "token", got: {component_type}')
+    import base64
+    
+    # Always use /render-icon endpoint, construct from base URL
+    if service_url is None:
+        # Use the new /render-icon endpoint
+        base_url = TOKEN_RENDERER_URL.replace('/render-token', '')
+    else:
+        # If service_url is provided, it might be a full endpoint URL
+        # Extract base URL by removing any endpoint paths
+        base_url = service_url.replace('/render-token', '').replace('/render-icon', '').rstrip('/')
+    
+    # Always use /render-icon endpoint (it handles both icon and token via componentType)
+    service_url = f"{base_url}/render-icon"
+    
+    try:
+        request_body = {"iconName": icon_name, "componentType": component_type}
+        if size:
+            request_body["size"] = size
+        print(f"    Calling {service_url} with componentType={component_type}, size={size or 'default'}")
         response = requests.post(
             service_url,
-            json={"iconName": icon_name, "tokenType": token_type},
+            json=request_body,
             headers={"Content-Type": "application/json"},
             timeout=30
         )
         response.raise_for_status()
         data = response.json()
-        return data.get("svg")
+        
+        # Verify the response has the correct componentType
+        returned_component_type = data.get("componentType")
+        if returned_component_type != component_type:
+            print(f"    ⚠ Warning: Requested {component_type} but got {returned_component_type}")
+        
+        image_base64 = data.get("image")
+        
+        if not image_base64:
+            return None
+        
+        # Decode base64 to bytes
+        image_bytes = base64.b64decode(image_base64)
+        return image_bytes
     except requests.exceptions.RequestException as e:
-        print(f"  ✗ Error rendering token: {e}")
+        print(f"  ✗ Error rendering {component_type}: {e}")
         return None
+
+
+def render_token_image(icon_name: str, service_url: str = None) -> Optional[bytes]:
+    """Render EuiToken to base64 PNG image using token renderer service (backward compatibility)
+    Returns decoded image bytes (not base64 string)
+    Note: Tokens don't use a size parameter - they use the service default
+    """
+    return render_icon_image(icon_name, component_type='token', service_url=service_url, size=None)
+
+
+def save_image_bytes(image_bytes: bytes, output_path: str) -> bool:
+    """Save image bytes to PNG file"""
+    try:
+        # Ensure parent directory exists
+        parent_dir = os.path.dirname(output_path)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+        
+        # Load image with PIL to verify it's valid
+        img = Image.open(io.BytesIO(image_bytes))
+        
+        # Save PNG
+        img.save(output_path, 'PNG')
+        return True
+    except Exception as e:
+        print(f"  ✗ Error saving image to {output_path}: {e}")
+        return False
 
 
 def index_embedding(
@@ -421,7 +519,9 @@ def process_icon(
     index: bool,
     skip_tokens: bool,
     service_url: str = None,
-    token_renderer_url: str = None
+    token_renderer_url: str = None,
+    save_images: bool = False,
+    images_output_dir: Optional[str] = None
 ) -> Dict:
     """Process a single icon (icon and token versions)"""
     result = {
@@ -434,57 +534,83 @@ def process_icon(
     }
     
     try:
-        # Read SVG file
+        # Read SVG file (still needed for storing in index)
         svg_content = read_svg_file(svg_file_path)
         
-        # Generate SVG embedding
-        print(f"  Generating SVG embedding...")
-        embeddings = generate_embedding(svg_content, service_url)
+        # Render icon as image using icon renderer (use xxl size for icons)
+        print(f"  Rendering icon as image (size: xxl)...")
+        icon_image_bytes = render_icon_image(icon_name, component_type='icon', service_url=token_renderer_url, size='xxl')
         
-        if not embeddings:
-            result["errors"].append("Failed to generate SVG embedding")
-            return result
-        
-        print(f"  ✓ SVG embedding generated ({len(embeddings)} dimensions)")
-        
-        # Index icon
-        if index and es_client:
-            doc_id = f"{icon_name}_{release_tag}"
-            print(f"  Indexing icon as {doc_id}...")
-            if index_embedding(
-                es_client,
-                doc_id,
-                icon_name,
-                filename,
-                release_tag,
-                "icon",
-                svg_content,
-                embeddings
-            ):
-                print(f"  ✓ Icon indexed")
-                result["regular_indexed"] = True
+        if icon_image_bytes:
+            print(f"  ✓ Icon image rendered ({len(icon_image_bytes)} bytes)")
+            
+            # Save icon image if requested
+            if save_images and images_output_dir:
+                icon_image_path = os.path.join(images_output_dir, release_tag, f"{icon_name}_icon.png")
+                if save_image_bytes(icon_image_bytes, icon_image_path):
+                    print(f"  ✓ Icon image saved to: {icon_image_path}")
+            
+            # Generate embedding from rendered image
+            print(f"  Generating icon image embedding...")
+            embeddings = generate_embedding_from_image(icon_image_bytes, service_url)
+            
+            if embeddings:
+                print(f"  ✓ Icon image embedding generated ({len(embeddings)} dimensions)")
+                
+                # Index icon
+                if index and es_client:
+                    doc_id = f"{icon_name}_{release_tag}"
+                    print(f"  Indexing icon as {doc_id}...")
+                    if index_embedding(
+                        es_client,
+                        doc_id,
+                        icon_name,
+                        filename,
+                        release_tag,
+                        "icon",
+                        svg_content,
+                        embeddings
+                    ):
+                        print(f"  ✓ Icon indexed")
+                        result["regular_indexed"] = True
+                    else:
+                        result["errors"].append("Failed to index icon")
+                else:
+                    # If not indexing, still mark as success if embedding was generated
+                    result["regular_indexed"] = True
             else:
-                result["errors"].append("Failed to index icon")
+                result["errors"].append("Failed to generate icon image embedding")
+        else:
+            # Renderer service is required - no fallback
+            result["errors"].append("Failed to render icon image - renderer service is required")
         
         # Process token version
         if not skip_tokens:
             print(f"  Rendering token version...")
-            token_svg = render_token_svg(icon_name, "string", token_renderer_url)
+            token_image_bytes = render_token_image(icon_name, token_renderer_url)
             
-            if token_svg:
-                print(f"  ✓ Token SVG rendered")
+            if token_image_bytes:
+                print(f"  ✓ Token image rendered ({len(token_image_bytes)} bytes)")
                 
-                # Generate token embedding
-                print(f"  Generating token SVG embedding...")
-                token_embeddings = generate_embedding(token_svg, service_url)
+                # Save token image if requested
+                if save_images and images_output_dir:
+                    token_image_path = os.path.join(images_output_dir, release_tag, f"{icon_name}_token.png")
+                    if save_image_bytes(token_image_bytes, token_image_path):
+                        print(f"  ✓ Token image saved to: {token_image_path}")
+                
+                # Generate token embedding from image
+                print(f"  Generating token image embedding...")
+                token_embeddings = generate_embedding_from_image(token_image_bytes, service_url)
                 
                 if token_embeddings:
-                    print(f"  ✓ Token SVG embedding generated ({len(token_embeddings)} dimensions)")
+                    print(f"  ✓ Token image embedding generated ({len(token_embeddings)} dimensions)")
                     
                     # Index token icon
                     if index and es_client:
                         doc_id = f"{icon_name}_token_{release_tag}"
                         print(f"  Indexing token icon as {doc_id}...")
+                        # For token, we still store the original SVG content in the index
+                        # The embedding is generated from the rendered image
                         if index_embedding(
                             es_client,
                             doc_id,
@@ -492,7 +618,7 @@ def process_icon(
                             filename,
                             release_tag,
                             "token",
-                            token_svg,
+                            svg_content,
                             token_embeddings,
                             token_type="string"
                         ):
@@ -501,9 +627,9 @@ def process_icon(
                         else:
                             result["errors"].append("Failed to index token icon")
                 else:
-                    result["errors"].append("Failed to generate token SVG embedding")
+                    result["errors"].append("Failed to generate token image embedding")
             else:
-                result["errors"].append("Failed to render token SVG")
+                result["errors"].append("Failed to render token image")
         
         result["success"] = len(result["errors"]) == 0
         return result
@@ -544,6 +670,18 @@ def main():
         "--skip-tokens",
         action="store_true",
         help="Skip token rendering (index only icons)"
+    )
+    
+    parser.add_argument(
+        "--save-images",
+        action="store_true",
+        help="Save rendered icon and token images as PNG files"
+    )
+    
+    parser.add_argument(
+        "--images-output-dir",
+        default="data/rendered_images",
+        help="Directory to save rendered images (default: data/rendered_images)"
     )
     
     parser.add_argument(
@@ -678,6 +816,14 @@ def main():
             print(f"✗ Error connecting to Elasticsearch: {e}")
             sys.exit(1)
     
+    # Set up images output directory if saving images
+    images_output_dir = None
+    if args.save_images:
+        images_output_dir = os.path.abspath(args.images_output_dir)
+        # Create base directory
+        os.makedirs(images_output_dir, exist_ok=True)
+        print(f"✓ Images will be saved to: {images_output_dir}")
+    
     # Process icons
     print(f"\nProcessing {len(matched_icons)} icons...")
     print("=" * 60)
@@ -696,7 +842,9 @@ def main():
             args.index,
             args.skip_tokens,
             EMBEDDING_SERVICE_URL,
-            TOKEN_RENDERER_URL
+            TOKEN_RENDERER_URL,
+            save_images=args.save_images,
+            images_output_dir=images_output_dir
         )
         
         results.append(result)

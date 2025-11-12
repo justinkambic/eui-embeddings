@@ -8,6 +8,7 @@ type SearchType = "text" | "image" | "svg";
 interface SearchRequest {
   type: SearchType;
   query: string; // text string, base64 image, or SVG code
+  icon_type?: "icon" | "token"; // Optional filter for icon type
 }
 
 interface SearchResult {
@@ -26,7 +27,7 @@ export default async function handler(
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { type, query }: SearchRequest = req.body;
+  const { type, query, icon_type }: SearchRequest = req.body;
 
   if (!type || !query) {
     return res.status(400).json({ error: "Missing 'type' or 'query' field" });
@@ -48,7 +49,7 @@ export default async function handler(
         return res.status(500).json({ error: "Failed to generate text embeddings" });
       }
 
-      const embedData = await embedRes.json();
+      const embedData = await embedRes.json() as { embeddings: number[]; sparse_embeddings?: Record<string, number> };
       embeddings = embedData.embeddings;
       sparseEmbeddings = embedData.sparse_embeddings;
     } else if (type === "image") {
@@ -66,7 +67,7 @@ export default async function handler(
         return res.status(500).json({ error: "Failed to generate image embeddings" });
       }
 
-      const embedData = await embedRes.json();
+      const embedData = await embedRes.json() as { embeddings: number[] };
       embeddings = embedData.embeddings;
     } else if (type === "svg") {
       const embedRes = await fetch("http://localhost:8000/embed-svg", {
@@ -79,7 +80,7 @@ export default async function handler(
         return res.status(500).json({ error: "Failed to generate SVG embeddings" });
       }
 
-      const embedData = await embedRes.json();
+      const embedData = await embedRes.json() as { embeddings: number[] };
       embeddings = embedData.embeddings;
     } else {
       return res.status(400).json({ error: "Invalid search type" });
@@ -105,28 +106,45 @@ export default async function handler(
       size: 10,
     };
 
+    // Build filter for icon_type if provided
+    const iconTypeFilter = icon_type
+      ? {
+          term: {
+            icon_type: icon_type,
+          },
+        }
+      : null;
+
     // For text searches, use hybrid search (dense + sparse)
     if (type === "text" && sparseEmbeddings) {
       // Hybrid search: combine knn with text_expansion
-      searchBody.query = {
-        bool: {
-          should: [
-            {
-              text_expansion: {
-                text_embedding_sparse: {
-                  model_text: query,
-                  model_id: ".elser_model_2",
-                },
+      const boolQuery: any = {
+        should: [
+          {
+            text_expansion: {
+              text_embedding_sparse: {
+                model_text: query,
+                model_id: ".elser_model_2",
               },
             },
-          ],
-        },
+          },
+        ],
+      };
+
+      // Add icon_type filter if provided
+      if (iconTypeFilter) {
+        boolQuery.filter = [iconTypeFilter];
+      }
+
+      searchBody.query = {
+        bool: boolQuery,
       };
       searchBody.knn = {
         field: embeddingField,
         query_vector: embeddings,
         k: 10,
         num_candidates: 100,
+        filter: iconTypeFilter ? [iconTypeFilter] : undefined,
       };
     } else {
       // Pure knn search for image/SVG or text without sparse embeddings
@@ -135,6 +153,7 @@ export default async function handler(
         query_vector: embeddings,
         k: 10,
         num_candidates: 100,
+        filter: iconTypeFilter ? [iconTypeFilter] : undefined,
       };
     }
 
