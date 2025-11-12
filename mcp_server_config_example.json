@@ -11,6 +11,18 @@
         "ELASTICSEARCH_ENDPOINT": "https://your-cluster.es.amazonaws.com",
         "ELASTICSEARCH_API_KEY": "your-api-key"
       }
+    },
+    "eui-icon-search-docker": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e", "ELASTICSEARCH_ENDPOINT=https://your-cluster.es.amazonaws.com",
+        "-e", "ELASTICSEARCH_API_KEY=your-api-key",
+        "-e", "EMBEDDING_SERVICE_URL=http://host.docker.internal:8000",
+        "eui-icon-search-mcp:latest"
+      ]
     }
   }
 }

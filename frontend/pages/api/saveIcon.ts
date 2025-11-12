@@ -12,11 +12,19 @@ export default async function handler(
     const { iconName, description } = req.body;
 
     console.log("icon, description", iconName, description);
+    
+    const embeddingServiceUrl = process.env.EMBEDDING_SERVICE_URL || "http://localhost:8000";
+    const apiKey = process.env.FRONTEND_API_KEY;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (apiKey) {
+      headers["X-API-Key"] = apiKey;
+    }
+    
     const [exists, embeddingsRes] = await Promise.all([
       client.exists({ index: INDEX_NAME, id: iconName }),
-      fetch("http://localhost:8000/embed", {
+      fetch(`${embeddingServiceUrl}/embed`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           content: description,
         }),

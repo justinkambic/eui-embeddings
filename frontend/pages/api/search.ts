@@ -28,10 +28,17 @@ export default async function handler(
     // Forward request to Python API
     const pythonApiUrl = process.env.EMBEDDING_SERVICE_URL || "http://localhost:8000";
     const searchUrl = `${pythonApiUrl}/search`;
+    
+    // Get API key from environment variable
+    const apiKey = process.env.FRONTEND_API_KEY;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (apiKey) {
+      headers["X-API-Key"] = apiKey;
+    }
 
     const response = await fetch(searchUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
       body: JSON.stringify({
         type,
         query,

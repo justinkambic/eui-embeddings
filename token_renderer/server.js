@@ -12,7 +12,9 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
-const PORT = process.env.TOKEN_RENDERER_PORT || 3002;
+const HOST = process.env.TOKEN_RENDERER_HOST || "0.0.0.0";
+const PORT = process.env.TOKEN_RENDERER_PORT || process.env.PORT || 3002;
+const BASE_URL = process.env.TOKEN_RENDERER_BASE_URL || `http://${HOST}:${PORT}`;
 
 // Middleware
 app.use(express.json());
@@ -76,7 +78,7 @@ async function renderIconToImage(iconType, componentType, size = 'm') {
     page = await browserInstance.newPage();
     
     // Navigate to the frontend page with query parameters
-    const url = `http://localhost:${PORT}/?iconType=${encodeURIComponent(iconType)}&componentType=${encodeURIComponent(componentType)}&size=${encodeURIComponent(size)}`;
+    const url = `${BASE_URL}/?iconType=${encodeURIComponent(iconType)}&componentType=${encodeURIComponent(componentType)}&size=${encodeURIComponent(size)}`;
     await page.goto(url, { waitUntil: 'networkidle' });
     
     // Wait for the SVG to load and have content
@@ -265,7 +267,7 @@ async function renderIconToSVG(iconType, componentType, size = 'm') {
     const browserInstance = await getBrowser();
     page = await browserInstance.newPage();
     
-    const url = `http://localhost:${PORT}/?iconType=${encodeURIComponent(iconType)}&componentType=${encodeURIComponent(componentType)}&size=${encodeURIComponent(size)}`;
+    const url = `${BASE_URL}/?iconType=${encodeURIComponent(iconType)}&componentType=${encodeURIComponent(componentType)}&size=${encodeURIComponent(size)}`;
     await page.goto(url, { waitUntil: 'networkidle' });
     
     // Wait for the SVG to load
@@ -462,12 +464,12 @@ app.post('/render-tokens', async (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`Icon renderer service running on port ${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log(`Render icon: POST http://localhost:${PORT}/render-icon`);
-  console.log(`Render token: POST http://localhost:${PORT}/render-token (backward compat)`);
-  console.log(`Frontend: http://localhost:${PORT}/`);
+app.listen(PORT, HOST, () => {
+  console.log(`Icon renderer service running on ${HOST}:${PORT}`);
+  console.log(`Health check: ${BASE_URL}/health`);
+  console.log(`Render icon: POST ${BASE_URL}/render-icon`);
+  console.log(`Render token: POST ${BASE_URL}/render-token (backward compat)`);
+  console.log(`Frontend: ${BASE_URL}/`);
   console.log(`\nTo build frontend: npm run build`);
   console.log(`To run frontend dev server: npm run dev:frontend`);
 });

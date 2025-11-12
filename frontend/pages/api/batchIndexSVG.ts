@@ -46,9 +46,16 @@ export default async function handler(
           const normalizedSVG = normalizeSVG(svgContent, 224);
 
           // Generate embeddings from SVG
-          const embedRes = await fetch("http://localhost:8000/embed-svg", {
+          const embeddingServiceUrl = process.env.EMBEDDING_SERVICE_URL || "http://localhost:8000";
+          const apiKey = process.env.FRONTEND_API_KEY;
+          const headers: Record<string, string> = { "Content-Type": "application/json" };
+          if (apiKey) {
+            headers["X-API-Key"] = apiKey;
+          }
+          
+          const embedRes = await fetch(`${embeddingServiceUrl}/embed-svg`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers,
             body: JSON.stringify({ svg_content: normalizedSVG }),
           });
 

@@ -1,4 +1,5 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 from typing import List, Optional, Literal, Union
@@ -10,19 +11,117 @@ import numpy as np
 from cairosvg import svg2png
 import base64
 import binascii
+import json
 
 app = FastAPI()
+
+# Environment variable configuration
+PYTHON_API_HOST = os.getenv("PYTHON_API_HOST", "0.0.0.0")
+PYTHON_API_PORT = int(os.getenv("PORT", os.getenv("PYTHON_API_PORT", "8000")))
+PYTHON_API_BASE_URL = os.getenv("PYTHON_API_BASE_URL", "")
+
+# CORS configuration
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
+if CORS_ORIGINS == "*":
+    cors_origins = ["*"]
+else:
+    cors_origins = [origin.strip() for origin in CORS_ORIGINS.split(",")]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# API Key authentication configuration
+API_KEY_HEADER = os.getenv("API_KEY_HEADER", "X-API-Key")
+API_KEYS_SECRET_NAME = os.getenv("API_KEYS_SECRET_NAME", "")
+API_KEYS_ENV = os.getenv("API_KEYS", "")
+
+# Load API keys from environment or Secret Manager
+_valid_api_keys = set()
+
+def load_api_keys():
+    """Load API keys from environment variable or Secret Manager"""
+    global _valid_api_keys
+    
+    # Try environment variable first (for local development)
+    if API_KEYS_ENV:
+        keys = [key.strip() for key in API_KEYS_ENV.split(",") if key.strip()]
+        _valid_api_keys.update(keys)
+    
+    # Try Secret Manager if configured (for production)
+    if API_KEYS_SECRET_NAME:
+        try:
+            # Try to import Google Cloud Secret Manager
+            from google.cloud import secretmanager
+            
+            client = secretmanager.SecretManagerServiceClient()
+            project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "")
+            if not project_id:
+                # Try to get project ID from metadata server
+                try:
+                    import requests
+                    metadata_url = "http://metadata.google.internal/computeMetadata/v1/project/project-id"
+                    headers = {"Metadata-Flavor": "Google"}
+                    response = requests.get(metadata_url, headers=headers, timeout=2)
+                    if response.status_code == 200:
+                        project_id = response.text
+                except:
+                    pass
+            
+            if project_id:
+                secret_name = f"projects/{project_id}/secrets/{API_KEYS_SECRET_NAME}/versions/latest"
+                response = client.access_secret_version(request={"name": secret_name})
+                keys_json = response.payload.data.decode("UTF-8")
+                keys = json.loads(keys_json)
+                if isinstance(keys, list):
+                    _valid_api_keys.update(keys)
+        except ImportError:
+            # google-cloud-secret-manager not installed, skip
+            pass
+        except Exception as e:
+            print(f"Warning: Could not load API keys from Secret Manager: {e}")
+
+# Load API keys on startup
+load_api_keys()
+
+async def verify_api_key(request: Request):
+    """Dependency to verify API key"""
+    if not _valid_api_keys:
+        # No API keys configured, allow all requests (for backward compatibility)
+        return True
+    
+    api_key = request.headers.get(API_KEY_HEADER)
+    if not api_key:
+        raise HTTPException(status_code=401, detail="API key required")
+    
+    if api_key not in _valid_api_keys:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    return True
+
+# Initialize models
 text_model = SentenceTransformer("all-MiniLM-L6-v2")
 image_model = SentenceTransformer("clip-ViT-B-32")
 
-# Initialize Elasticsearch client for ELSER inference and search
+# Initialize Elasticsearch client with configurable settings
 es_client = None
 INDEX_NAME = "icons"
-if os.getenv("ELASTICSEARCH_ENDPOINT") and os.getenv("ELASTICSEARCH_API_KEY"):
+es_endpoint = os.getenv("ELASTICSEARCH_ENDPOINT")
+es_api_key = os.getenv("ELASTICSEARCH_API_KEY")
+es_timeout = int(os.getenv("ELASTICSEARCH_TIMEOUT", "30"))
+es_max_retries = int(os.getenv("ELASTICSEARCH_MAX_RETRIES", "3"))
+
+if es_endpoint and es_api_key:
     es_client = Elasticsearch(
-        [os.getenv("ELASTICSEARCH_ENDPOINT")],
-        api_key=os.getenv("ELASTICSEARCH_API_KEY"),
-        request_timeout=30
+        [es_endpoint],
+        api_key=es_api_key,
+        request_timeout=es_timeout,
+        max_retries=es_max_retries,
+        retry_on_timeout=True
     )
 
 class EmbedRequest(BaseModel):
@@ -55,7 +154,24 @@ class SearchResponse(BaseModel):
     results: List[SearchResult]
     total: Union[int, dict]
 
-@app.post("/embed", response_model=EmbedResponse)
+@app.get("/health")
+async def health_check():
+    """Health check endpoint (no authentication required)"""
+    health_status = {
+        "status": "ok",
+        "service": "eui-icon-embeddings",
+        "elasticsearch": "connected" if es_client else "not_configured"
+    }
+    if es_client:
+        try:
+            # Test Elasticsearch connection
+            es_client.ping()
+            health_status["elasticsearch"] = "connected"
+        except Exception as e:
+            health_status["elasticsearch"] = f"error: {str(e)}"
+    return health_status
+
+@app.post("/embed", response_model=EmbedResponse, dependencies=[Depends(verify_api_key)])
 async def embed_text(request: EmbedRequest):
     # Generate dense embeddings
     embeddings = text_model.encode(request.content, convert_to_numpy=True).tolist()
@@ -85,7 +201,7 @@ async def embed_text(request: EmbedRequest):
         sparse_embeddings=sparse_embeddings
     )
 
-@app.post("/embed-image", response_model=ImageEmbedResponse)
+@app.post("/embed-image", response_model=ImageEmbedResponse, dependencies=[Depends(verify_api_key)])
 async def embed_image(file: UploadFile = File(...)):
     """Generate embeddings for an image file"""
     from image_processor import normalize_search_image
@@ -103,7 +219,7 @@ async def embed_image(file: UploadFile = File(...)):
     
     return ImageEmbedResponse(embeddings=embeddings)
 
-@app.post("/embed-svg", response_model=ImageEmbedResponse)
+@app.post("/embed-svg", response_model=ImageEmbedResponse, dependencies=[Depends(verify_api_key)])
 async def embed_svg(request: SVGEmbedRequest):
     """Generate embeddings for SVG content (converts SVG to image first)"""
     try:
@@ -184,7 +300,7 @@ async def embed_svg(request: SVGEmbedRequest):
     except Exception as e:
         raise ValueError(f"Error processing SVG: {str(e)}")
 
-@app.post("/search", response_model=SearchResponse)
+@app.post("/search", response_model=SearchResponse, dependencies=[Depends(verify_api_key)])
 async def search(request: SearchRequest):
     """Search for icons using text, image, or SVG"""
     if not es_client:

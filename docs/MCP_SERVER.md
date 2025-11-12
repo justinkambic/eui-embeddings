@@ -37,6 +37,80 @@ export ELASTICSEARCH_ENDPOINT=https://your-cluster.es.amazonaws.com
 export ELASTICSEARCH_API_KEY=your-api-key
 ```
 
+## Docker Usage
+
+The MCP server can be run as a Docker container. This is useful for:
+- Consistent execution environment
+- Isolated dependencies
+- Easy distribution to team members
+
+### Building the Docker Image
+
+```bash
+docker build -f Dockerfile.mcp -t eui-icon-search-mcp:latest .
+```
+
+### Running with Docker
+
+The MCP server requires environment variables to be passed at runtime:
+
+```bash
+docker run -i \
+  -e ELASTICSEARCH_ENDPOINT=https://your-cluster.es.amazonaws.com \
+  -e ELASTICSEARCH_API_KEY=your-api-key \
+  -e EMBEDDING_SERVICE_URL=http://localhost:8000 \
+  eui-icon-search-mcp:latest
+```
+
+**Note**: When running in Docker, `EMBEDDING_SERVICE_URL` should point to the host machine or a service accessible from the container. For example:
+- If the embedding service runs on the host: `http://host.docker.internal:8000`
+- If both services are in Docker: Use the Docker service name (e.g., `http://python-api:8000`)
+
+### Using with Claude Desktop (Docker)
+
+Update your Claude Desktop configuration to use Docker:
+
+```json
+{
+  "mcpServers": {
+    "eui-icon-search": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e", "ELASTICSEARCH_ENDPOINT=https://your-cluster.es.amazonaws.com",
+        "-e", "ELASTICSEARCH_API_KEY=your-api-key",
+        "-e", "EMBEDDING_SERVICE_URL=http://host.docker.internal:8000",
+        "eui-icon-search-mcp:latest"
+      ]
+    }
+  }
+}
+```
+
+**Note**: The `-i` flag keeps stdin open for MCP protocol communication, and `--rm` removes the container after it exits.
+
+### Docker Compose Example
+
+If you're using Docker Compose, you can add the MCP server as a service:
+
+```yaml
+services:
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    environment:
+      - ELASTICSEARCH_ENDPOINT=${ELASTICSEARCH_ENDPOINT}
+      - ELASTICSEARCH_API_KEY=${ELASTICSEARCH_API_KEY}
+      - EMBEDDING_SERVICE_URL=http://python-api:8000
+    stdin_open: true
+    tty: true
+    networks:
+      - eui-network
+```
+
 ## Running the Server
 
 ### Prerequisites
@@ -45,7 +119,7 @@ Before running the MCP server, ensure:
 1. The Python embedding service is running (`uvicorn embed:app --port 8000`)
 2. Elasticsearch is configured and accessible (required for search functionality)
 
-### Start the Server
+### Start the Server (Local)
 
 The MCP server uses stdio transport by default:
 
@@ -241,6 +315,8 @@ Found 25 total matches, showing top 10:
 
 ### Claude Desktop
 
+#### Local Python Installation
+
 Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
@@ -251,12 +327,18 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
       "args": ["/path/to/eui-embeddings/mcp_server.py"],
       "env": {
         "SEARCH_API_URL": "http://localhost:8000/search",
-        "EMBEDDING_SERVICE_URL": "http://localhost:8000"
+        "EMBEDDING_SERVICE_URL": "http://localhost:8000",
+        "ELASTICSEARCH_ENDPOINT": "https://your-cluster.es.amazonaws.com",
+        "ELASTICSEARCH_API_KEY": "your-api-key"
       }
     }
   }
 }
 ```
+
+#### Docker (Alternative)
+
+If you prefer to use Docker, see the [Docker Usage](#docker-usage) section above for configuration examples.
 
 ### Other MCP Clients
 
