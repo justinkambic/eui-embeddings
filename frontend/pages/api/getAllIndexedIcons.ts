@@ -5,7 +5,9 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  const esEndpoint = process.env.ELASTICSEARCH_ENDPOINT;
+  if (!client) {
+    return res.status(500).json({ error: "Elasticsearch client not configured" });
+  }
 
   try {
     const esRes = await client.search({
@@ -18,7 +20,7 @@ export default async function handler(
           },
         },
       },
-    });
+    } as any);
     const buckets = (esRes.aggregations?.iconTypes as any)?.buckets || [];
     const iconTypes = buckets.map((b: any) => b.key);
     res.status(200).json({ iconTypes });

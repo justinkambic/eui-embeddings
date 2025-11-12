@@ -1,0 +1,91 @@
+# Python virtual environment
+venv/
+env/
+ENV/
+.venv
+
+# Node modules
+node_modules/
+frontend/node_modules/
+token_renderer/node_modules/
+classifier/node_modules/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Test files
+test_*.py
+*_test.py
+tests/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Data directories
+data/
+*.png
+*.jpg
+*.jpeg
+*.svg
+!token_renderer/src/**/*.svg
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Environment files (will be passed via docker-compose or runtime)
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Coverage reports
+.coverage
+htmlcov/
+
+# Jupyter notebooks
+*.ipynb
+
+# MCP config (not needed in container)
+mcp_server_config_example.json
+.cursor/
+
+# Plans directory
+.cursor/plans/
+
+# Screenshots and test outputs
+Screenshot*.png
+test_output/
+*.png
+!token_renderer/src/**/*.png
+
+# Classifier (separate service)
+classifier/
+

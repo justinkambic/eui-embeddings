@@ -1,0 +1,46 @@
+# Python Embedding/Search Service Dockerfile
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies required for cairosvg (SVG to PNG conversion)
+# Also install curl for health checks
+RUN apt-get update && apt-get install -y \
+    libcairo2-dev \
+    libpango1.0-dev \
+    libgdk-pixbuf-2.0-dev \
+    libffi-dev \
+    shared-mime-info \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+
+# Copy requirements first for better layer caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY embed.py .
+COPY image_processor.py .
+COPY svg_processor.py .
+
+# Switch to non-root user
+USER appuser
+
+# Expose port (default 8000, can be overridden by PORT env var)
+EXPOSE 8000
+
+# Health check endpoint
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
+
+# Run the application
+# PORT env var is used by Cloud Run, fallback to 8000
+# Note: Using shell form for CMD to allow ${PORT} variable expansion
+CMD uvicorn embed:app --host 0.0.0.0 --port ${PORT:-8000}
+

@@ -9,6 +9,10 @@ export default async function handler(
   res: NextApiResponse
 ) {
   if (req.method === "POST") {
+    if (!client) {
+      return res.status(500).json({ error: "Elasticsearch client not configured" });
+    }
+
     const { iconName, description } = req.body;
 
     console.log("icon, description", iconName, description);
@@ -37,10 +41,11 @@ export default async function handler(
         .status(500)
         .json({ error: "Failed to fetch embeddings from the service" });
     }
-    const { embeddings, sparse_embeddings } = (await embeddingsRes.json()) as {
+    const responseData = await embeddingsRes.json() as {
       embeddings: number[];
       sparse_embeddings?: Record<string, number>;
     };
+    const { embeddings, sparse_embeddings } = responseData;
     console.log("embeddings data:", embeddings);
 
     const document: {
@@ -59,14 +64,14 @@ export default async function handler(
     }
 
     if (exists) {
-      const esResponse = await client.get<{
-        descriptions: string[];
-        text_embedding: number[];
-        text_embedding_sparse?: Record<string, number>;
-      }>({
+      const esResponse = await client.get({
         index: INDEX_NAME,
         id: iconName,
-      });
+      }) as { _source?: {
+        descriptions?: string[];
+        text_embedding?: number[];
+        text_embedding_sparse?: Record<string, number>;
+      }};
       const existingDescriptions = esResponse._source?.descriptions || [];
       // Merge descriptions if needed
       const allDescriptions = Array.isArray(existingDescriptions) 

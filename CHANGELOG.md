@@ -5,6 +5,80 @@ All notable changes to the EUI Icon Embeddings project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2025-11-12] - Docker Configuration and Environment Variable Standardization
+
+### Added
+- **Docker Configuration**
+  - `Dockerfile.python` - Python embedding/search service container
+  - `Dockerfile.frontend` - Next.js frontend container with multi-stage build
+  - `Dockerfile.token-renderer` - Token renderer service container
+  - `Dockerfile.mcp` - MCP server container for local Docker usage
+  - `docker-compose.yml` - Local development orchestration with internal networking
+  - `.dockerignore` files for optimized builds
+
+- **Environment Variable Documentation** (`docs/ENVIRONMENT_VARIABLES.md`)
+  - Comprehensive reference for all environment variables across services
+  - Service-specific variable prefixes and usage examples
+  - Environment-specific configuration examples (local, Docker, production)
+
+- **Python API Enhancements** (`embed.py`)
+  - Environment variable configuration: `PYTHON_API_HOST`, `PYTHON_API_PORT`, `PYTHON_API_BASE_URL`
+  - CORS middleware with configurable origins via `CORS_ORIGINS`
+  - API key authentication middleware (supports env vars and Google Secret Manager)
+  - Health check endpoint (`/health`) for container health checks
+  - Configurable Elasticsearch connection settings (`ELASTICSEARCH_TIMEOUT`, `ELASTICSEARCH_MAX_RETRIES`)
+  - Support for `PORT` environment variable (Cloud Run compatibility)
+
+- **Next.js Configuration** (`frontend/next.config.js`)
+  - Standalone output mode for Docker deployment
+  - Environment variable exposure configuration
+
+### Changed
+- **Python API** (`embed.py`)
+  - All endpoints now require API key authentication when keys are configured
+  - Health check endpoint excluded from authentication
+  - Backward compatible: works without API keys if none are configured
+  - Improved error handling with HTTPException for better error messages
+
+- **Frontend API Routes** (`frontend/pages/api/*.ts`)
+  - All routes now use `EMBEDDING_SERVICE_URL` environment variable instead of hardcoded URLs
+  - Added `FRONTEND_API_KEY` support for authenticating with Python API
+  - Improved TypeScript type safety for API responses
+  - Added null checks for Elasticsearch client (build-time safety)
+
+- **Frontend Elasticsearch Client** (`frontend/client/es.ts`)
+  - Made client initialization conditional (null if env vars not set)
+  - Prevents build-time errors when Elasticsearch is not configured
+
+- **Token Renderer Service** (`token_renderer/server.js`)
+  - Added `TOKEN_RENDERER_HOST`, `TOKEN_RENDERER_PORT`, `TOKEN_RENDERER_BASE_URL` environment variables
+  - Server binds to configurable host/port for Docker compatibility
+
+- **MCP Server Documentation** (`docs/MCP_SERVER.md`)
+  - Added Docker usage section with build and run examples
+  - Added Claude Desktop Docker configuration example
+  - Added Docker Compose example for MCP server
+
+- **MCP Server Configuration** (`mcp_server_config_example.json`)
+  - Added Docker usage example configuration
+
+- **Frontend Components** (`frontend/pages/icon/[iconName].tsx`, `frontend/utils/icon_renderer.ts`)
+  - Fixed TypeScript type errors for EuiLink and EuiIcon components
+  - Fixed regex compatibility issues for older TypeScript targets
+
+### Technical Details
+- **Docker Features**:
+  - All containers run as non-root users for security
+  - Health check endpoints configured for all services
+  - Multi-stage builds for optimized image sizes
+  - Token renderer service accessible only via internal Docker network
+  - Support for Cloud Run `PORT` environment variable
+
+- **Environment Variables**:
+  - Python API: `PYTHON_API_HOST`, `PYTHON_API_PORT`, `CORS_ORIGINS`, `API_KEYS`, `API_KEYS_SECRET_NAME`
+  - Frontend: `EMBEDDING_SERVICE_URL`, `NEXT_PUBLIC_EMBEDDING_SERVICE_URL`, `FRONTEND_API_KEY`
+  - Token Renderer: `TOKEN_RENDERER_HOST`, `TOKEN_RENDERER_PORT`, `TOKEN_RENDERER_BASE_URL`
+  - Elasticsearch: `ELASTICSEARCH_ENDPOINT`, `ELASTICSEARCH_API_KEY`, `ELASTICSEARCH_TIMEOUT`, `ELASTICSEARCH_MAX_RETRIES`
 
 ## [2025-11-12] - MCP Server and Frontend Enhancements
 

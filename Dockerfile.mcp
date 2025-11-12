@@ -1,0 +1,35 @@
+# MCP Server Dockerfile
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+
+# Copy requirements first for better layer caching
+COPY requirements.txt .
+
+# Install Python dependencies (including MCP SDK)
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy MCP server script
+COPY mcp_server.py .
+
+# Set ownership
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# MCP servers use stdio transport, so no port exposure needed
+# The server will read from stdin and write to stdout
+
+# Run the MCP server
+# Environment variables should be provided at runtime:
+# - ELASTICSEARCH_ENDPOINT
+# - ELASTICSEARCH_API_KEY
+# - EMBEDDING_SERVICE_URL (optional, defaults to http://localhost:8000)
+# - SEARCH_API_URL (optional, defaults to {EMBEDDING_SERVICE_URL}/search)
+CMD ["python", "mcp_server.py"]
+

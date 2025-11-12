@@ -12,8 +12,8 @@ const nextConfig = {
   // Production optimizations
   reactStrictMode: true,
   
-  // Optional: Configure output for static export if needed
-  // output: 'standalone',
+  // Enable standalone output for Docker
+  output: 'standalone',
 };
 
 module.exports = nextConfig;

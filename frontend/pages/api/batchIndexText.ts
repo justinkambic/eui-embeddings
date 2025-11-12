@@ -19,6 +19,10 @@ export default async function handler(
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  if (!client) {
+    return res.status(500).json({ error: "Elasticsearch client not configured" });
+  }
+
   const { items }: BatchIndexTextRequest = req.body;
 
   if (!items || !Array.isArray(items) || items.length === 0) {
@@ -57,7 +61,11 @@ export default async function handler(
             throw new Error(`Embedding generation failed: ${embedRes.statusText}`);
           }
 
-          const { embeddings, sparse_embeddings } = await embedRes.json();
+          const responseData = await embedRes.json() as { 
+            embeddings: number[]; 
+            sparse_embeddings?: Record<string, number> 
+          };
+          const { embeddings, sparse_embeddings } = responseData;
 
           // Check if document exists
           const exists = await client.exists({
@@ -80,7 +88,7 @@ export default async function handler(
             const existingDoc = await client.get({
               index: INDEX_NAME,
               id: item.iconName,
-            });
+            }) as { _source?: { descriptions?: string[] } };
 
             const existingDescriptions = existingDoc._source?.descriptions || [];
             const allDescriptions = Array.isArray(existingDescriptions)

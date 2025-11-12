@@ -21,13 +21,13 @@ export async function renderIconToSVG(iconType: string, size: string = 'xl'): Pr
   try {
     const iconElement = React.createElement(EuiIcon, {
       type: iconType,
-      size: size
+      size: size as "s" | "m" | "l" | "xl" | "xxl" | "original"
     });
     
     const htmlString = renderToStaticMarkup(iconElement);
     
-    // Extract just the SVG part
-    const svgMatch = htmlString.match(/<svg[^>]*>.*<\/svg>/s);
+    // Extract just the SVG part (using [\s\S] instead of . with s flag for compatibility)
+    const svgMatch = htmlString.match(/<svg[^>]*>[\s\S]*?<\/svg>/);
     if (svgMatch) {
       return svgMatch[0];
     }

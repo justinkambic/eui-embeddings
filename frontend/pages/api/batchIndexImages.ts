@@ -16,6 +16,10 @@ export default async function handler(
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  if (!client) {
+    return res.status(500).json({ error: "Elasticsearch client not configured" });
+  }
+
   const { iconNames }: BatchIndexImagesRequest = req.body;
 
   if (!iconNames || !Array.isArray(iconNames) || iconNames.length === 0) {
@@ -66,7 +70,8 @@ export default async function handler(
             throw new Error(`Embedding generation failed: ${embedRes.statusText}`);
           }
 
-          const { embeddings } = await embedRes.json();
+          const responseData = await embedRes.json() as { embeddings: number[] };
+          const { embeddings } = responseData;
 
           // Check if document exists
           const exists = await client.exists({
