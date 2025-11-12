@@ -53,12 +53,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Documentation** (`README.md`)
   - Added MCP Server section with quick start instructions and link to detailed documentation
 
-- **Search API** (`frontend/pages/api/search.ts`)
-  - Added `fields` parameter to specify which embedding fields to search
-  - Updated to search across multiple embedding fields based on selection
-  - Uses single KNN query for one field, array of queries for multiple fields
-  - Added `min_score` filter (0.75) to return only high-confidence results
-  - Removed `icon_type` filter from KNN queries (field selection handles filtering)
+- **Search API Architecture** (`frontend/pages/api/search.ts`)
+  - Converted from full search implementation to thin proxy
+  - Now forwards requests to Python API at `/search` endpoint
+  - Improved error handling to parse FastAPI error responses
+  - Removed direct Elasticsearch client dependency
+  - Removed embedding generation logic (now handled by Python API)
 
 - **Frontend Search** (`frontend/components/mainPage/content.tsx`)
   - Added field selection checkbox group for choosing embedding fields to search
@@ -67,6 +67,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added pagination support with configurable page sizes
   - Added SVG rendering display when SVG code is pasted
   - Results maintain Elasticsearch score-based ordering
+  - Improved error handling to display actual error messages from API
+
+- **Search Endpoint in Python API** (`embed.py`)
+  - Added `/search` endpoint that handles text, image, and SVG search
+  - Supports `icon_type` and `fields` parameters for field selection
+  - Implements hybrid search (dense + sparse embeddings) for text queries
+  - Supports multiple KNN queries for image/SVG searches across multiple fields
+  - Uses HTTPException for proper error responses
+  - Handles base64 image decoding and validation
+
+- **Search Migration Documentation** (`docs/MOVE_SEARCH_TO_PYTHON_API.md`)
+  - Implementation plan for moving search functionality to Python API
+  - Testing considerations and migration steps
+
+### Changed
+- **MCP Server** (`mcp_server.py`)
+  - Updated `SEARCH_API_URL` default to use Python API endpoint (`http://localhost:8000/search`)
+  - Removed unused `USE_DIRECT_SEARCH` logic and Elasticsearch direct access code
+  - Simplified configuration to use Python API exclusively
+
+- **Test Scripts**
+  - `test_svg_search.py`: Updated to use Python API endpoint
+  - `test_image_search.py`: Updated to use Python API endpoint
+
+- **Documentation** (`docs/MCP_SERVER.md`, `README.md`, `mcp_server_config_example.json`)
+  - Updated all references to use Python API search endpoint
+  - Removed references to Next.js API for search functionality
+  - Updated environment variable examples
 
 ## [2025-11-11] - Token Rendering and Indexing Improvements
 
