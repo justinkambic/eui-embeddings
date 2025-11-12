@@ -19,7 +19,7 @@ import requests
 from pathlib import Path
 
 # Configuration
-SEARCH_API_URL = "http://localhost:3001/api/search"
+SEARCH_API_URL = "http://localhost:8000/search"
 EMBEDDING_SERVICE_URL = "http://localhost:8000/embed-svg"
 EUI_LOCATION = os.getenv("EUI_LOCATION", "./data/eui")
 ICON_MAP_PATH = "packages/eui/src/components/icon/icon_map.ts"

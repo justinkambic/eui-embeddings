@@ -48,29 +48,12 @@ import io
 
 # Configuration
 EMBEDDING_SERVICE_URL = os.getenv("EMBEDDING_SERVICE_URL", "http://localhost:8000")
-SEARCH_API_URL = os.getenv("SEARCH_API_URL", "http://localhost:3001/api/search")
-ELASTICSEARCH_ENDPOINT = os.getenv("ELASTICSEARCH_ENDPOINT")
-ELASTICSEARCH_API_KEY = os.getenv("ELASTICSEARCH_API_KEY")
-INDEX_NAME = "icons"
-
-# If Elasticsearch is configured, we can search directly
-USE_DIRECT_SEARCH = ELASTICSEARCH_ENDPOINT and ELASTICSEARCH_API_KEY
-
-if USE_DIRECT_SEARCH:
-    try:
-        from elasticsearch import Elasticsearch
-        es_client = Elasticsearch(
-            [ELASTICSEARCH_ENDPOINT],
-            api_key=ELASTICSEARCH_API_KEY,
-            request_timeout=30
-        )
-    except ImportError:
-        USE_DIRECT_SEARCH = False
-        print("Warning: elasticsearch package not available, will use API endpoint")
+# Search API URL defaults to Python API endpoint
+SEARCH_API_URL = os.getenv("SEARCH_API_URL", f"{EMBEDDING_SERVICE_URL}/search")
 
 
 def search_via_api(search_type: str, query: str, icon_type: Optional[str] = None, fields: Optional[list] = None) -> dict:
-    """Search using the Next.js API endpoint"""
+    """Search using the Python API endpoint"""
     # Log search requests to stderr for debugging
     print(f"[MCP] Search request: type={search_type}, icon_type={icon_type}, fields={fields}", file=sys.stderr, flush=True)
     
@@ -319,11 +302,6 @@ if MCP_AVAILABLE:
         print("=" * 60, file=sys.stderr, flush=True)
         print(f"Search API URL: {SEARCH_API_URL}", file=sys.stderr, flush=True)
         print(f"Embedding Service URL: {EMBEDDING_SERVICE_URL}", file=sys.stderr, flush=True)
-        if USE_DIRECT_SEARCH:
-            print(f"Elasticsearch: {ELASTICSEARCH_ENDPOINT} (direct access)", file=sys.stderr, flush=True)
-        else:
-            print("Elasticsearch: Using API endpoint", file=sys.stderr, flush=True)
-        print(f"Index Name: {INDEX_NAME}", file=sys.stderr, flush=True)
         print("Available tools:", file=sys.stderr, flush=True)
         print("  - search_by_svg: Search icons using SVG code", file=sys.stderr, flush=True)
         print("  - search_by_image: Search icons using image data", file=sys.stderr, flush=True)

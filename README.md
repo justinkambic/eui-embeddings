@@ -198,13 +198,12 @@ python mcp_server.py
 
 **Configuration:**
 Set environment variables:
-- `SEARCH_API_URL` - Search API endpoint (default: http://localhost:3001/api/search)
+- `SEARCH_API_URL` - Search API endpoint (default: http://localhost:8000/search)
 - `EMBEDDING_SERVICE_URL` - Embedding service URL (default: http://localhost:8000)
 
 **Tools Available:**
 - `search_by_svg` - Search using SVG code
 - `search_by_image` - Search using base64 image data
-- `search_by_text` - Search using text descriptions
 
 See [docs/MCP_SERVER.md](docs/MCP_SERVER.md) for detailed documentation.
 

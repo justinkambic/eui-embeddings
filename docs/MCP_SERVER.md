@@ -28,10 +28,11 @@ The MCP server uses environment variables for configuration:
 # Embedding service URL (default: http://localhost:8000)
 export EMBEDDING_SERVICE_URL=http://localhost:8000
 
-# Search API URL (default: http://localhost:3001/api/search)
-export SEARCH_API_URL=http://localhost:3001/api/search
+# Search API URL (default: http://localhost:8000/search)
+# This defaults to the Python API search endpoint
+export SEARCH_API_URL=http://localhost:8000/search
 
-# Optional: Direct Elasticsearch access (if not using API)
+# Optional: Direct Elasticsearch access (for Python API)
 export ELASTICSEARCH_ENDPOINT=https://your-cluster.es.amazonaws.com
 export ELASTICSEARCH_API_KEY=your-api-key
 ```
@@ -41,9 +42,8 @@ export ELASTICSEARCH_API_KEY=your-api-key
 ### Prerequisites
 
 Before running the MCP server, ensure:
-1. The embedding service is running (`uvicorn embed:app --port 8000`)
-2. The Next.js frontend API is running (optional, if using `SEARCH_API_URL`)
-3. Elasticsearch is configured and accessible
+1. The Python embedding service is running (`uvicorn embed:app --port 8000`)
+2. Elasticsearch is configured and accessible (required for search functionality)
 
 ### Start the Server
 
@@ -250,7 +250,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
       "command": "python",
       "args": ["/path/to/eui-embeddings/mcp_server.py"],
       "env": {
-        "SEARCH_API_URL": "http://localhost:3001/api/search",
+        "SEARCH_API_URL": "http://localhost:8000/search",
         "EMBEDDING_SERVICE_URL": "http://localhost:8000"
       }
     }
@@ -412,7 +412,7 @@ python test_mcp_server.py
    ```bash
    # Check if services are accessible
    curl http://localhost:8000/docs  # Embedding service
-   curl http://localhost:3001/api/search  # Search API (if using)
+   curl -X POST http://localhost:8000/search -H "Content-Type: application/json" -d '{"type":"text","query":"test"}'  # Search API
    ```
 
 2. **Test SVG Search**
@@ -449,14 +449,13 @@ Install with: `pip install mcp`
 **Note**: The server will still work in CLI mode without the SDK, but you won't be able to use it as an MCP server.
 
 ### "Connection refused" errors
-Ensure the embedding service and/or search API are running:
+Ensure the embedding service is running:
 - Embedding service: `uvicorn embed:app --port 8000`
-- Frontend API: `cd frontend && npm run dev`
 
 **Test connectivity:**
 ```bash
 curl http://localhost:8000/docs
-curl -X POST http://localhost:3001/api/search \
+curl -X POST http://localhost:8000/search \
   -H "Content-Type: application/json" \
   -d '{"type":"text","query":"test"}'
 ```

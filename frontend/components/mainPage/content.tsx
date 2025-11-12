@@ -90,7 +90,9 @@ export function MainPageContent() {
       });
 
       if (!response.ok) {
-        throw new Error("Search failed");
+        const errorData = await response.json().catch(() => ({ error: "Search failed" }));
+        console.error("Search API error:", errorData);
+        throw new Error(errorData.error || errorData.detail || "Search failed");
       }
 
       const data = await response.json();
@@ -126,7 +128,9 @@ export function MainPageContent() {
       });
 
       if (!response.ok) {
-        throw new Error("Search failed");
+        const errorData = await response.json().catch(() => ({ error: "Search failed" }));
+        console.error("Search API error:", errorData);
+        throw new Error(errorData.error || errorData.detail || "Search failed");
       }
 
       const data = await response.json();

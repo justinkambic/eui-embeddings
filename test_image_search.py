@@ -19,7 +19,7 @@ from PIL import Image
 import io
 
 # Configuration
-SEARCH_API_URL = "http://localhost:3001/api/search"
+SEARCH_API_URL = "http://localhost:8000/search"
 
 def image_to_base64(image_path: str) -> str:
     """Convert image file to base64 string"""
