@@ -191,47 +191,37 @@ def check_all_icons_indexed(
     """
     Check if all icons for a version are indexed.
     
-    Returns True if all icons (and tokens if not skipped) are indexed, False otherwise.
+    Returns True if all icons (with all embeddings) are indexed, False otherwise.
     """
     if not es_client:
         return False
     
     try:
         for svg_file, icon_name, filename in matched_icons:
-            # Check regular icon
+            # Check icon document (now contains all embeddings)
             doc_id = f"{icon_name}_{release_tag}"
             if not es_client.exists(index=INDEX_NAME, id=doc_id):
                 return False
             
-            # Check if document has svg_embedding
+            # Check if document has at least icon embeddings (icon_image_embedding and icon_svg_embedding)
             try:
                 doc = es_client.get(index=INDEX_NAME, id=doc_id)
                 source = doc.get("_source", {})
-                if "svg_embedding" not in source:
+                
+                # Must have at least icon embeddings
+                if "icon_image_embedding" not in source or "icon_svg_embedding" not in source:
                     return False
+                
+                # If tokens are not skipped, check for token embeddings
+                if not skip_tokens:
+                    if "token_image_embedding" not in source or "token_svg_embedding" not in source:
+                        return False
+                
                 # Verify it's the correct version
                 if source.get("release_tag") != release_tag:
                     return False
             except Exception:
                 return False
-            
-            # Check token icon if not skipping tokens
-            if not skip_tokens:
-                token_doc_id = f"{icon_name}_token_{release_tag}"
-                if not es_client.exists(index=INDEX_NAME, id=token_doc_id):
-                    return False
-                
-                # Check if token document has svg_embedding
-                try:
-                    token_doc = es_client.get(index=INDEX_NAME, id=token_doc_id)
-                    token_source = token_doc.get("_source", {})
-                    if "svg_embedding" not in token_source:
-                        return False
-                    # Verify it's the correct version
-                    if token_source.get("release_tag") != release_tag:
-                        return False
-                except Exception:
-                    return False
         
         return True
     except Exception as e:
@@ -443,6 +433,52 @@ def render_token_image(icon_name: str, service_url: str = None) -> Optional[byte
     return render_icon_image(icon_name, component_type='token', service_url=service_url, size=None)
 
 
+def render_icon_svg(icon_name: str, component_type: str, service_url: str = None, size: str = None) -> Optional[str]:
+    """Render EuiIcon or EuiToken to SVG/HTML content using icon renderer service
+    Returns SVG/HTML content string
+    
+    Args:
+        icon_name: Icon name to render
+        component_type: 'icon' for EuiIcon or 'token' for EuiToken (required)
+        service_url: Renderer service base URL (default: derived from TOKEN_RENDERER_URL)
+        size: Icon/token size (e.g., 's', 'm', 'l', 'xl', 'xxl'). If None, uses service default.
+    """
+    if component_type not in ('icon', 'token'):
+        raise ValueError(f'component_type must be "icon" or "token", got: {component_type}')
+    
+    # Always use /render-svg endpoint, construct from base URL
+    if service_url is None:
+        base_url = TOKEN_RENDERER_URL.replace('/render-token', '').replace('/render-icon', '').replace('/render-svg', '').rstrip('/')
+    else:
+        base_url = service_url.replace('/render-token', '').replace('/render-icon', '').replace('/render-svg', '').rstrip('/')
+    
+    service_url = f"{base_url}/render-svg"
+    
+    try:
+        request_body = {"iconName": icon_name, "componentType": component_type}
+        if size:
+            request_body["size"] = size
+        print(f"    Calling {service_url} with componentType={component_type}, size={size or 'default'}")
+        response = requests.post(
+            service_url,
+            json=request_body,
+            headers={"Content-Type": "application/json"},
+            timeout=30
+        )
+        response.raise_for_status()
+        data = response.json()
+        
+        svg_content = data.get("svgContent")
+        
+        if not svg_content:
+            return None
+        
+        return svg_content
+    except requests.exceptions.RequestException as e:
+        print(f"  ✗ Error rendering {component_type} SVG: {e}")
+        return None
+
+
 def save_image_bytes(image_bytes: bytes, output_path: str) -> bool:
     """Save image bytes to PNG file"""
     try:
@@ -468,22 +504,34 @@ def index_embedding(
     icon_name: str,
     filename: str,
     release_tag: str,
-    icon_type: str,
     svg_content: str,
-    embeddings: List[float],
+    icon_image_embedding: Optional[List[float]] = None,
+    token_image_embedding: Optional[List[float]] = None,
+    icon_svg_embedding: Optional[List[float]] = None,
+    token_svg_embedding: Optional[List[float]] = None,
+    token_svg_content: Optional[str] = None,
     token_type: Optional[str] = None
 ) -> bool:
-    """Index embedding in Elasticsearch"""
+    """Index all embeddings for an icon in a single Elasticsearch document"""
     try:
         document = {
             "icon_name": icon_name,
             "filename": filename,
             "release_tag": release_tag,
-            "icon_type": icon_type,
-            "svg_embedding": embeddings,
             "svg_content": svg_content,
         }
         
+        # Add embeddings if provided
+        if icon_image_embedding:
+            document["icon_image_embedding"] = icon_image_embedding
+        if token_image_embedding:
+            document["token_image_embedding"] = token_image_embedding
+        if icon_svg_embedding:
+            document["icon_svg_embedding"] = icon_svg_embedding
+        if token_svg_embedding:
+            document["token_svg_embedding"] = token_svg_embedding
+        if token_svg_content:
+            document["token_svg_content"] = token_svg_content
         if token_type:
             document["token_type"] = token_type
         
@@ -523,21 +571,27 @@ def process_icon(
     save_images: bool = False,
     images_output_dir: Optional[str] = None
 ) -> Dict:
-    """Process a single icon (icon and token versions)"""
+    """Process a single icon and generate all embeddings (icon + token, image + SVG) in one document"""
     result = {
         "icon_name": icon_name,
         "filename": filename,
         "success": False,
-        "regular_indexed": False,
-        "token_indexed": False,
+        "indexed": False,
         "errors": []
     }
     
     try:
-        # Read SVG file (still needed for storing in index)
+        # Read original SVG file content
         svg_content = read_svg_file(svg_file_path)
         
-        # Render icon as image using icon renderer (use xxl size for icons)
+        # Initialize embeddings
+        icon_image_embedding = None
+        token_image_embedding = None
+        icon_svg_embedding = None
+        token_svg_embedding = None
+        token_svg_content = None
+        
+        # 1. Render icon as image and generate embedding
         print(f"  Rendering icon as image (size: xxl)...")
         icon_image_bytes = render_icon_image(icon_name, component_type='icon', service_url=token_renderer_url, size='xxl')
         
@@ -552,41 +606,28 @@ def process_icon(
             
             # Generate embedding from rendered image
             print(f"  Generating icon image embedding...")
-            embeddings = generate_embedding_from_image(icon_image_bytes, service_url)
+            icon_image_embedding = generate_embedding_from_image(icon_image_bytes, service_url)
             
-            if embeddings:
-                print(f"  ✓ Icon image embedding generated ({len(embeddings)} dimensions)")
-                
-                # Index icon
-                if index and es_client:
-                    doc_id = f"{icon_name}_{release_tag}"
-                    print(f"  Indexing icon as {doc_id}...")
-                    if index_embedding(
-                        es_client,
-                        doc_id,
-                        icon_name,
-                        filename,
-                        release_tag,
-                        "icon",
-                        svg_content,
-                        embeddings
-                    ):
-                        print(f"  ✓ Icon indexed")
-                        result["regular_indexed"] = True
-                    else:
-                        result["errors"].append("Failed to index icon")
-                else:
-                    # If not indexing, still mark as success if embedding was generated
-                    result["regular_indexed"] = True
+            if icon_image_embedding:
+                print(f"  ✓ Icon image embedding generated ({len(icon_image_embedding)} dimensions)")
             else:
                 result["errors"].append("Failed to generate icon image embedding")
         else:
-            # Renderer service is required - no fallback
             result["errors"].append("Failed to render icon image - renderer service is required")
         
-        # Process token version
+        # 2. Generate icon SVG embedding from original SVG
+        print(f"  Generating icon SVG embedding...")
+        icon_svg_embedding = generate_embedding(svg_content, service_url)
+        
+        if icon_svg_embedding:
+            print(f"  ✓ Icon SVG embedding generated ({len(icon_svg_embedding)} dimensions)")
+        else:
+            result["errors"].append("Failed to generate icon SVG embedding")
+        
+        # 3. Process token version (if not skipped)
         if not skip_tokens:
-            print(f"  Rendering token version...")
+            # 3a. Render token as image and generate embedding
+            print(f"  Rendering token as image...")
             token_image_bytes = render_token_image(icon_name, token_renderer_url)
             
             if token_image_bytes:
@@ -598,38 +639,67 @@ def process_icon(
                     if save_image_bytes(token_image_bytes, token_image_path):
                         print(f"  ✓ Token image saved to: {token_image_path}")
                 
-                # Generate token embedding from image
+                # Generate token image embedding
                 print(f"  Generating token image embedding...")
-                token_embeddings = generate_embedding_from_image(token_image_bytes, service_url)
+                token_image_embedding = generate_embedding_from_image(token_image_bytes, service_url)
                 
-                if token_embeddings:
-                    print(f"  ✓ Token image embedding generated ({len(token_embeddings)} dimensions)")
-                    
-                    # Index token icon
-                    if index and es_client:
-                        doc_id = f"{icon_name}_token_{release_tag}"
-                        print(f"  Indexing token icon as {doc_id}...")
-                        # For token, we still store the original SVG content in the index
-                        # The embedding is generated from the rendered image
-                        if index_embedding(
-                            es_client,
-                            doc_id,
-                            icon_name,
-                            filename,
-                            release_tag,
-                            "token",
-                            svg_content,
-                            token_embeddings,
-                            token_type="string"
-                        ):
-                            print(f"  ✓ Token icon indexed")
-                            result["token_indexed"] = True
-                        else:
-                            result["errors"].append("Failed to index token icon")
+                if token_image_embedding:
+                    print(f"  ✓ Token image embedding generated ({len(token_image_embedding)} dimensions)")
                 else:
                     result["errors"].append("Failed to generate token image embedding")
             else:
                 result["errors"].append("Failed to render token image")
+            
+            # 3b. Render token as SVG/HTML and generate embedding
+            print(f"  Rendering token as SVG...")
+            token_svg_content = render_icon_svg(icon_name, component_type='token', service_url=token_renderer_url, size=None)
+            
+            if token_svg_content:
+                print(f"  ✓ Token SVG rendered ({len(token_svg_content)} bytes)")
+                
+                # Extract just the SVG element from token HTML (token has span wrapper)
+                import re
+                svg_match = re.search(r'<svg[^>]*>.*?</svg>', token_svg_content, re.DOTALL)
+                token_svg_only = svg_match.group(0) if svg_match else token_svg_content
+                
+                # Generate token SVG embedding
+                print(f"  Generating token SVG embedding...")
+                token_svg_embedding = generate_embedding(token_svg_only, service_url)
+                
+                if token_svg_embedding:
+                    print(f"  ✓ Token SVG embedding generated ({len(token_svg_embedding)} dimensions)")
+                else:
+                    result["errors"].append("Failed to generate token SVG embedding")
+            else:
+                result["errors"].append("Failed to render token SVG")
+        
+        # 4. Index all embeddings in a single document
+        if index and es_client:
+            doc_id = f"{icon_name}_{release_tag}"
+            print(f"  Indexing all embeddings as {doc_id}...")
+            
+            if index_embedding(
+                es_client,
+                doc_id,
+                icon_name,
+                filename,
+                release_tag,
+                svg_content,
+                icon_image_embedding=icon_image_embedding,
+                token_image_embedding=token_image_embedding,
+                icon_svg_embedding=icon_svg_embedding,
+                token_svg_embedding=token_svg_embedding,
+                token_svg_content=token_svg_content,
+                token_type="string" if not skip_tokens else None
+            ):
+                print(f"  ✓ All embeddings indexed")
+                result["indexed"] = True
+            else:
+                result["errors"].append("Failed to index embeddings")
+        else:
+            # If not indexing, still mark as success if at least some embeddings were generated
+            if icon_image_embedding or icon_svg_embedding:
+                result["indexed"] = True
         
         result["success"] = len(result["errors"]) == 0
         return result
@@ -637,6 +707,8 @@ def process_icon(
     except Exception as e:
         result["errors"].append(str(e))
         print(f"  ✗ Error processing icon: {e}")
+        import traceback
+        traceback.print_exc()
         return result
 
 
@@ -855,16 +927,13 @@ def main():
     print("=" * 60)
     
     successful = sum(1 for r in results if r["success"])
-    regular_indexed = sum(1 for r in results if r["regular_indexed"])
-    token_indexed = sum(1 for r in results if r["token_indexed"])
+    indexed = sum(1 for r in results if r["indexed"])
     failed = len(results) - successful
     
     print(f"Total icons: {len(results)}")
     print(f"Successful: {successful}")
     if args.index:
-        print(f"Icons indexed: {regular_indexed}")
-        if not args.skip_tokens:
-            print(f"Token icons indexed: {token_indexed}")
+        print(f"Icons indexed: {indexed}")
     print(f"Failed: {failed}")
     
     if failed > 0:

@@ -53,19 +53,35 @@ INDEX_MAPPING = {
             "text_embedding_sparse": {
                 "type": "sparse_vector"
             },
-            "image_embedding": {
+            "icon_image_embedding": {
                 "type": "dense_vector",
                 "dims": 512,
                 "index": True,
                 "similarity": "cosine"
             },
-            "svg_embedding": {
+            "token_image_embedding": {
+                "type": "dense_vector",
+                "dims": 512,
+                "index": True,
+                "similarity": "cosine"
+            },
+            "icon_svg_embedding": {
+                "type": "dense_vector",
+                "dims": 512,
+                "index": True,
+                "similarity": "cosine"
+            },
+            "token_svg_embedding": {
                 "type": "dense_vector",
                 "dims": 512,
                 "index": True,
                 "similarity": "cosine"
             },
             "svg_content": {
+                "type": "text",
+                "index": False
+            },
+            "token_svg_content": {
                 "type": "text",
                 "index": False
             }

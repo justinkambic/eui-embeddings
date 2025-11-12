@@ -189,6 +189,7 @@ icon-descriptions.json
 test-results/
 .pytest_cache/
 .coverage
+.cursor
 htmlcov/
 data/
 

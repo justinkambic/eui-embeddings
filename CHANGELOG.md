@@ -25,8 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - REST API endpoints:
     - `GET /health` - Health check
     - `POST /render-token` - Render single token
+    - `POST /render-icon` - Render icon or token with componentType parameter
+    - `POST /render-svg` - Return SVG/HTML content for icon or token
     - `POST /render-tokens` - Batch render tokens
   - Runs on port 3002 by default (configurable via `TOKEN_RENDERER_PORT`)
+  - Playwright-based rendering with webpack-built frontend
+  - Supports rendering both EuiIcon and EuiToken components
 
 - **Elasticsearch Index Mapping Updates**
   - Added `filename` field (keyword) - Original SVG filename
@@ -34,6 +38,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `icon_type` field (keyword) - "icon" or "token"
   - Added `token_type` field (keyword) - Token type for token icons (optional)
   - Added `svg_content` field (text, not indexed) - Full SVG content for reference
+  - Replaced single `image_embedding` and `svg_embedding` with separate fields:
+    - `icon_image_embedding` (dense_vector, 512 dims)
+    - `token_image_embedding` (dense_vector, 512 dims)
+    - `icon_svg_embedding` (dense_vector, 512 dims)
+    - `token_svg_embedding` (dense_vector, 512 dims)
+  - Added `token_svg_content` field (text, not indexed) - Token SVG/HTML content
+
+- **Frontend Component Refactoring**
+  - Extracted main page content into `frontend/components/mainPage/content.tsx`
+  - Added `frontend/pages/_app.tsx` with EuiProvider wrapper for EUI context
+  - Replaced EuiFlexGrid with EuiBasicTable for search results display
+  - Added field selection UI with checkbox group for choosing embedding fields
+  - Added conditional column rendering based on selected embedding fields
+  - Added SVG rendering display when SVG code is pasted
 
 - **Documentation**
   - `docs/REINDEXING_STRATEGY.md` - Plan for automated indexing strategy
@@ -44,16 +62,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Index Mapping** (`utils/es_index_setup.py`)
   - Changed `icon_type` values from "regular" to "icon"
-  - Updated `svg_embedding` dimensions from 384 to 512 to match CLIP model output
+  - Updated embedding fields to separate icon and token embeddings
   - Added version tracking and icon type fields
 
-- **Frontend Search** (`frontend/pages/index.tsx`)
-  - Added image paste functionality (Ctrl/Cmd+V)
-  - Added file upload for image search
-  - Added SVG code paste with debounced search
-  - Added image preview using `EuiImage` component
-  - Added loading states and result filtering
-  - Improved icon display with similarity scores
+- **Indexing Script** (`scripts/index_eui_icons.py`)
+  - Updated to generate all four embedding types (icon image, token image, icon SVG, token SVG) for each icon
+  - Stores all embeddings in a single document instead of separate documents
+  - Uses token renderer service for all image generation (removed SVG-to-PNG fallback)
+  - Added option to save rendered images to disk with `--save-images` flag
+  - Updated document structure to include all embedding fields
+
+- **Search API** (`frontend/pages/api/search.ts`)
+  - Added `fields` parameter to specify which embedding fields to search
+  - Updated to search across multiple embedding fields based on selection
+  - Uses single KNN query for one field, array of queries for multiple fields
+  - Added `min_score` filter (0.75) to return only high-confidence results
+  - Removed `icon_type` filter from KNN queries (field selection handles filtering)
+
+- **Frontend Search** (`frontend/components/mainPage/content.tsx`)
+  - Added field selection checkbox group for choosing embedding fields to search
+  - Replaced grid layout with EuiBasicTable for structured results display
+  - Added separate Icon and Token columns that render conditionally based on selected fields
+  - Added pagination support with configurable page sizes
+  - Added SVG rendering display when SVG code is pasted
+  - Results maintain Elasticsearch score-based ordering
 
 - **Search API Response** (`frontend/pages/api/search.ts`)
   - Returns `icon_name` from document source instead of document ID
@@ -79,6 +111,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed field mismatch where image search was querying `image_embedding` but SVGs were indexed in `svg_embedding`
   - Updated search API to query `svg_embedding` for image searches (both use CLIP, compatible)
   - Implemented automatic background detection and inversion for image normalization
+
+- **EUI Styling**
+  - Added EuiProvider wrapper in `_app.tsx` to ensure EUI CSS classes (including `.euiScreenReaderOnly`) are properly applied
 
 ## [2025-11-11] - Frontend Search Improvements
 

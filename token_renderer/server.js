@@ -246,6 +246,110 @@ app.post('/render-icon', async (req, res) => {
 });
 
 /**
+ * Get SVG/HTML content for icon or token
+ * POST /render-svg
+ * Body: { iconName: string, componentType: string ('icon' or 'token'), size?: string }
+ * Returns: { svgContent: string (HTML/SVG), iconName: string, componentType: string, size: string }
+ */
+async function renderIconToSVG(iconType, componentType, size = 'm') {
+  if (!componentType || (componentType !== 'icon' && componentType !== 'token')) {
+    throw new Error('componentType is required and must be "icon" or "token"');
+  }
+  let page = null;
+  try {
+    if (!fs.existsSync(distPath)) {
+      console.error('Frontend not built. Run "npm run build" first.');
+      return null;
+    }
+    
+    const browserInstance = await getBrowser();
+    page = await browserInstance.newPage();
+    
+    const url = `http://localhost:${PORT}/?iconType=${encodeURIComponent(iconType)}&componentType=${encodeURIComponent(componentType)}&size=${encodeURIComponent(size)}`;
+    await page.goto(url, { waitUntil: 'networkidle' });
+    
+    // Wait for the SVG to load
+    await page.waitForFunction(() => {
+      const svg = document.querySelector('svg');
+      return svg && svg.innerHTML.trim().length > 0;
+    }, { timeout: 10000 }).catch(() => {
+      console.warn(`Timeout waiting for SVG to load for ${iconType}`);
+    });
+    
+    // Extract the SVG/HTML content
+    const svgContent = await page.evaluate((compType) => {
+      if (compType === 'token') {
+        // For token, get the outerHTML of the span wrapper
+        const tokenSpan = document.querySelector('span.euiToken, [class*="euiToken"]');
+        return tokenSpan ? tokenSpan.outerHTML : null;
+      } else {
+        // For icon, get the SVG element
+        const svgs = document.querySelectorAll('svg');
+        for (const svg of svgs) {
+          const parent = svg.closest('span.euiToken, [class*="euiToken"]');
+          if (!parent) {
+            return svg.outerHTML;
+          }
+        }
+        return svgs[0] ? svgs[0].outerHTML : null;
+      }
+    }, componentType);
+    
+    await page.close();
+    
+    return svgContent;
+  } catch (error) {
+    console.error(`Error rendering ${componentType} SVG ${iconType}:`, error.message);
+    if (page) {
+      try {
+        await page.close();
+      } catch (e) {
+        // Ignore close errors
+      }
+    }
+    return null;
+  }
+}
+
+app.post('/render-svg', async (req, res) => {
+  const { iconName, componentType, size = 'm' } = req.body;
+  
+  if (!iconName) {
+    return res.status(400).json({ 
+      error: 'Missing required field: iconName' 
+    });
+  }
+  
+  if (!componentType || (componentType !== 'icon' && componentType !== 'token')) {
+    return res.status(400).json({ 
+      error: 'componentType must be "icon" or "token"' 
+    });
+  }
+  
+  try {
+    const svgContent = await renderIconToSVG(iconName, componentType, size);
+    
+    if (!svgContent) {
+      return res.status(500).json({ 
+        error: `Failed to render ${componentType} SVG for icon: ${iconName}` 
+      });
+    }
+    
+    res.json({ 
+      svgContent: svgContent,
+      iconName: iconName,
+      componentType: componentType,
+      size: size
+    });
+  } catch (error) {
+    console.error(`Error in render-svg endpoint (${componentType}):`, error);
+    res.status(500).json({ 
+      error: error.message || 'Internal server error' 
+    });
+  }
+});
+
+/**
  * Render token endpoint (backward compatibility)
  * POST /render-token
  * Body: { iconName: string, size?: string }

@@ -8,7 +8,8 @@ type SearchType = "text" | "image" | "svg";
 interface SearchRequest {
   type: SearchType;
   query: string; // text string, base64 image, or SVG code
-  icon_type?: "icon" | "token"; // Optional filter for icon type
+  icon_type?: "icon" | "token"; // Optional filter for icon type (deprecated, use fields instead)
+  fields?: string[]; // Optional: specific embedding fields to search (e.g., ["icon_image_embedding", "icon_svg_embedding"])
 }
 
 interface SearchResult {
@@ -27,7 +28,7 @@ export default async function handler(
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { type, query, icon_type }: SearchRequest = req.body;
+  const { type, query, icon_type, fields }: SearchRequest = req.body;
 
   if (!type || !query) {
     return res.status(400).json({ error: "Missing 'type' or 'query' field" });
@@ -86,26 +87,6 @@ export default async function handler(
       return res.status(400).json({ error: "Invalid search type" });
     }
 
-    // Determine which embedding field to search
-    // For image searches, search svg_embedding since both use CLIP (512 dimensions)
-    // and are compatible. If you've indexed image_embedding separately, you can
-    // change this to "image_embedding" or search both fields separately.
-    let embeddingField: string;
-    if (type === "text") {
-      embeddingField = "text_embedding";
-    } else if (type === "image") {
-      // Image searches use svg_embedding since both use CLIP model (512 dimensions)
-      // Both are compatible - SVGs are converted to images before embedding
-      embeddingField = "svg_embedding";
-    } else {
-      embeddingField = "svg_embedding";
-    }
-
-    // Build search query
-    const searchBody: any = {
-      size: 10,
-    };
-
     // Build filter for icon_type if provided
     const iconTypeFilter = icon_type
       ? {
@@ -114,6 +95,11 @@ export default async function handler(
           },
         }
       : null;
+
+    // Build search query
+    const searchBody: any = {
+      size: 50,
+    };
 
     // For text searches, use hybrid search (dense + sparse)
     if (type === "text" && sparseEmbeddings) {
@@ -139,17 +125,77 @@ export default async function handler(
       searchBody.query = {
         bool: boolQuery,
       };
+      // Text searches use text_embedding field
       searchBody.knn = {
-        field: embeddingField,
+        field: "text_embedding",
         query_vector: embeddings,
         k: 10,
         num_candidates: 100,
         filter: iconTypeFilter ? [iconTypeFilter] : undefined,
       };
+    } else if (type === "image" || type === "svg") {
+      // Image/SVG searches: use fields parameter if provided, otherwise fall back to icon_type logic
+      const knnQueries: any[] = [];
+      
+      // Valid embedding fields
+      const validFields = [
+        "icon_image_embedding",
+        "icon_svg_embedding",
+        "token_image_embedding",
+        "token_svg_embedding",
+      ];
+      
+      // Determine which fields to search
+      let fieldsToSearch: string[] = [];
+      
+      if (fields && Array.isArray(fields) && fields.length > 0) {
+        // Use explicitly provided fields (filter to only valid ones)
+        fieldsToSearch = fields.filter((f) => validFields.includes(f));
+      } else {
+        // Fall back to icon_type logic for backward compatibility
+        if (icon_type === "icon") {
+          fieldsToSearch = ["icon_image_embedding", "icon_svg_embedding"];
+        } else if (icon_type === "token") {
+          fieldsToSearch = ["token_image_embedding", "token_svg_embedding"];
+        } else {
+          // Default: search all fields
+          fieldsToSearch = validFields;
+        }
+      }
+      
+      // If no valid fields, default to all fields
+      if (fieldsToSearch.length === 0) {
+        fieldsToSearch = validFields;
+      }
+      
+      // If only one field, use a single KNN query (scores will be normalized 0-1 for cosine similarity)
+      // If multiple fields, use an array (scores will be combined and may exceed 1.0)
+      if (fieldsToSearch.length === 1) {
+        searchBody.knn = {
+          field: fieldsToSearch[0],
+          query_vector: embeddings,
+          k: 10,
+          num_candidates: 100,
+        };
+      } else {
+        // Build KNN queries for each selected field
+        for (const field of fieldsToSearch) {
+          knnQueries.push({
+            field: field,
+            query_vector: embeddings,
+            k: 10,
+            num_candidates: 100,
+          });
+        }
+        
+        // Note: When using multiple KNN queries, Elasticsearch combines scores which can result
+        // in scores > 1.0. This is expected behavior - scores are still relative (higher = better match).
+        searchBody.knn = knnQueries;
+      }
     } else {
-      // Pure knn search for image/SVG or text without sparse embeddings
+      // Fallback: text search without sparse embeddings
       searchBody.knn = {
-        field: embeddingField,
+        field: "text_embedding",
         query_vector: embeddings,
         k: 10,
         num_candidates: 100,
