@@ -1,5 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 from typing import List, Optional, Literal, Union
@@ -26,6 +28,30 @@ if CORS_ORIGINS == "*":
     cors_origins = ["*"]
 else:
     cors_origins = [origin.strip() for origin in CORS_ORIGINS.split(",")]
+
+# Security headers middleware for HTTPS
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        # Add security headers
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        # HSTS header - only add if using HTTPS
+        # Check via base URL, request scheme, or X-Forwarded-Proto header (from load balancer)
+        is_https = (
+            PYTHON_API_BASE_URL.startswith("https://") or
+            request.url.scheme == "https" or
+            request.headers.get("X-Forwarded-Proto") == "https"
+        )
+        if is_https:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        # Content Security Policy - adjust as needed for your use case
+        response.headers["Content-Security-Policy"] = "default-src 'self'"
+        return response
+
+# Add security headers middleware (before CORS)
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

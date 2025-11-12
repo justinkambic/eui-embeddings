@@ -11,7 +11,11 @@ services:
       - ELASTICSEARCH_API_KEY=${ELASTICSEARCH_API_KEY}
       - PYTHON_API_HOST=0.0.0.0
       - PYTHON_API_PORT=8000
+      # For HTTPS behind reverse proxy/load balancer, set PYTHON_API_BASE_URL
+      # - PYTHON_API_BASE_URL=https://api.icons.example.com
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      # For HTTPS, update CORS_ORIGINS to include HTTPS frontend domain:
+      # - CORS_ORIGINS=https://icons.example.com
       - API_KEYS=${API_KEYS:-}
       - API_KEY_HEADER=${API_KEY_HEADER:-X-API-Key}
       - ELASTICSEARCH_TIMEOUT=${ELASTICSEARCH_TIMEOUT:-30}
@@ -34,9 +38,19 @@ services:
     ports:
       - "3000:3000"
     environment:
+      # Internal Docker network URL for server-side requests
       - EMBEDDING_SERVICE_URL=http://python-api:8000
+      # For HTTPS behind reverse proxy/load balancer:
+      # Option 1: Use public HTTPS URL for both client and server
+      # - EMBEDDING_SERVICE_URL=https://api.icons.example.com
+      # - NEXT_PUBLIC_EMBEDDING_SERVICE_URL=https://api.icons.example.com
+      # Option 2: Use internal URL for server-side, HTTPS for client-side (better performance)
+      # Keep EMBEDDING_SERVICE_URL as http://python-api:8000 (internal)
+      # Set NEXT_PUBLIC_EMBEDDING_SERVICE_URL to HTTPS URL
       - NEXT_PUBLIC_EMBEDDING_SERVICE_URL=${NEXT_PUBLIC_EMBEDDING_SERVICE_URL:-http://localhost:8000}
       - FRONTEND_API_KEY=${FRONTEND_API_KEY:-}
+      # For HTTPS, update NEXT_PUBLIC_FRONTEND_URL:
+      # - NEXT_PUBLIC_FRONTEND_URL=https://icons.example.com
       - NEXT_PUBLIC_FRONTEND_URL=${NEXT_PUBLIC_FRONTEND_URL:-http://localhost:3000}
       - ELASTICSEARCH_ENDPOINT=${ELASTICSEARCH_ENDPOINT}
       - ELASTICSEARCH_API_KEY=${ELASTICSEARCH_API_KEY}

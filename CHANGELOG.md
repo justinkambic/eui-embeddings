@@ -5,6 +5,64 @@ All notable changes to the EUI Icon Embeddings project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2025-11-12] - Phase 3: HTTPS/SSL Configuration
+
+### Added
+- **Security Headers Middleware** (`embed.py`)
+  - `SecurityHeadersMiddleware` class for adding security headers to all responses
+  - `X-Content-Type-Options: nosniff` header to prevent MIME type sniffing
+  - `X-Frame-Options: DENY` header to prevent clickjacking attacks
+  - `X-XSS-Protection: 1; mode=block` header for XSS protection
+  - `Strict-Transport-Security` (HSTS) header conditionally added for HTTPS requests
+  - `Content-Security-Policy: default-src 'self'` header for CSP protection
+  - HTTPS detection via `PYTHON_API_BASE_URL`, request scheme, or `X-Forwarded-Proto` header
+
+- **Cloud Run Deployment Configurations**
+  - `cloud-run-python.yaml` - Production-ready Cloud Run service configuration for Python API
+  - `cloud-run-frontend.yaml` - Production-ready Cloud Run service configuration for Next.js frontend
+  - Includes health checks, resource limits, scaling configuration, and environment variables
+  - Supports both public HTTPS URLs and internal Cloud Run URLs for optimal performance
+
+- **HTTPS Setup Automation** (`scripts/setup-https.sh`)
+  - Automated script for setting up GCP Cloud Load Balancer with HTTPS
+  - Creates static IP address reservation
+  - Provisions Google-managed SSL certificates
+  - Sets up health checks, Network Endpoint Groups (NEGs), backend services, URL maps, and forwarding rules
+  - Supports subdomain-based routing (frontend and API on separate subdomains)
+
+- **Verification and Testing**
+  - `scripts/verify-phase3.sh` - Automated verification script for Phase 3 implementation
+  - `test_phase3_https.py` - Python test suite for security headers and HTTPS configuration
+  - Comprehensive verification of all Phase 3 requirements
+
+- **Documentation**
+  - `docs/HTTPS_SETUP.md` - Complete guide for HTTPS/SSL configuration on GCP
+  - `docs/PHASE3_HTTPS_IMPLEMENTATION.md` - Implementation summary and architecture details
+  - `docs/PHASE3_VERIFICATION_CHECKLIST.md` - Detailed verification checklist with testing procedures
+  - `docs/PHASE3_QUICK_TEST.md` - Quick reference guide for fast verification
+
+### Changed
+- **Python API** (`embed.py`)
+  - Added security headers middleware before CORS middleware
+  - Security headers are now automatically added to all API responses
+  - HSTS header is conditionally added only when HTTPS is detected
+
+- **Docker Compose** (`docker-compose.yml`)
+  - Added HTTPS configuration comments explaining how to configure services behind reverse proxy/load balancer
+  - Documents options for internal vs external service communication
+  - Includes examples for configuring HTTPS URLs
+
+- **Environment Variables Documentation** (`docs/ENVIRONMENT_VARIABLES.md`)
+  - Added HTTPS configuration examples for production deployment
+  - Documented `PYTHON_API_BASE_URL` usage for HTTPS
+  - Added notes about internal vs public URL configuration
+
+### Security
+- All API responses now include security headers by default
+- HSTS header ensures browsers enforce HTTPS connections
+- CSP header helps prevent XSS attacks
+- Security headers work correctly with GCP Load Balancer via `X-Forwarded-Proto` header
+
 ## [2025-11-12] - Docker Configuration and Environment Variable Standardization
 
 ### Added

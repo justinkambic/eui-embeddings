@@ -245,7 +245,7 @@ TOKEN_RENDERER_PORT=3002
 TOKEN_RENDERER_URL=http://token-renderer:3002
 ```
 
-### Production (GCP Cloud Run)
+### Production (GCP Cloud Run with HTTPS)
 
 ```bash
 # Python API
@@ -258,11 +258,20 @@ RATE_LIMIT_PER_MINUTE=60
 RATE_LIMIT_PER_HOUR=1000
 
 # Frontend
+# Option 1: Use public HTTPS URLs for both client and server
 EMBEDDING_SERVICE_URL=https://api.icons.example.com
 NEXT_PUBLIC_EMBEDDING_SERVICE_URL=https://api.icons.example.com
 FRONTEND_API_KEY=<from Secret Manager>
 NEXT_PUBLIC_FRONTEND_URL=https://icons.example.com
+
+# Option 2: Use internal Cloud Run URL for server-side (better performance)
+# EMBEDDING_SERVICE_URL=http://eui-python-api-<hash>-uc.a.run.app  # Internal URL
+# NEXT_PUBLIC_EMBEDDING_SERVICE_URL=https://api.icons.example.com  # Public HTTPS
+# FRONTEND_API_KEY=<from Secret Manager>
+# NEXT_PUBLIC_FRONTEND_URL=https://icons.example.com
 ```
+
+**Note**: See `docs/HTTPS_SETUP.md` for detailed HTTPS configuration instructions.
 
 ## Notes
 

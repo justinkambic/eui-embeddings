@@ -1,0 +1,89 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: eui-frontend
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/execution-environment: gen2
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "5"
+        run.googleapis.com/cpu-throttling: "true"
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 60
+      serviceAccountName: eui-frontend-sa@PROJECT_ID.iam.gserviceaccount.com
+      containers:
+      - image: gcr.io/PROJECT_ID/eui-frontend:latest
+        ports:
+        - name: http1
+          containerPort: 3000
+        env:
+        # Python API configuration
+        # Option 1: Use public HTTPS URL for both client and server
+        - name: EMBEDDING_SERVICE_URL
+          value: "https://api.icons.example.com"
+        - name: NEXT_PUBLIC_EMBEDDING_SERVICE_URL
+          value: "https://api.icons.example.com"
+        
+        # Option 2: Use internal Cloud Run URL for server-side (better performance)
+        # Uncomment and update with your actual Cloud Run service URL:
+        # - name: EMBEDDING_SERVICE_URL
+        #   value: "http://eui-python-api-<hash>-uc.a.run.app"
+        # - name: NEXT_PUBLIC_EMBEDDING_SERVICE_URL
+        #   value: "https://api.icons.example.com"
+        
+        # Frontend configuration
+        - name: NEXT_PUBLIC_FRONTEND_URL
+          value: "https://icons.example.com"
+        - name: PORT
+          value: "3000"
+        - name: NODE_ENV
+          value: "production"
+        
+        # API Key for frontend to authenticate with Python API
+        - name: FRONTEND_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: frontend-api-key
+              key: api-key
+        
+        # Elasticsearch (optional, if frontend needs direct access)
+        - name: ELASTICSEARCH_ENDPOINT
+          value: "https://your-cluster.es.amazonaws.com"
+        - name: ELASTICSEARCH_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-api-key
+              key: api-key
+        
+        resources:
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+        
+        startupProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+          periodSeconds: 10
+          failureThreshold: 3
+        
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 30
+          timeoutSeconds: 5
+          periodSeconds: 30
+          failureThreshold: 3
+

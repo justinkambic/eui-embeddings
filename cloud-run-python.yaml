@@ -1,0 +1,90 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: eui-python-api
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/execution-environment: gen2
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "10"
+        run.googleapis.com/cpu-throttling: "true"
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      containerConcurrency: 20
+      timeoutSeconds: 60
+      serviceAccountName: eui-python-api-sa@PROJECT_ID.iam.gserviceaccount.com
+      containers:
+      - image: gcr.io/PROJECT_ID/eui-python-api:latest
+        ports:
+        - name: http1
+          containerPort: 8000
+        env:
+        # Elasticsearch configuration
+        - name: ELASTICSEARCH_ENDPOINT
+          value: "https://your-cluster.es.amazonaws.com"
+        - name: ELASTICSEARCH_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-api-key
+              key: api-key
+        - name: ELASTICSEARCH_TIMEOUT
+          value: "30"
+        - name: ELASTICSEARCH_MAX_RETRIES
+          value: "3"
+        
+        # API configuration
+        - name: PYTHON_API_HOST
+          value: "0.0.0.0"
+        - name: PORT
+          value: "8000"
+        - name: PYTHON_API_BASE_URL
+          value: "https://api.icons.example.com"
+        
+        # CORS configuration (update with your frontend domain)
+        - name: CORS_ORIGINS
+          value: "https://icons.example.com"
+        
+        # API Key authentication
+        - name: API_KEY_HEADER
+          value: "X-API-Key"
+        - name: API_KEYS_SECRET_NAME
+          value: "api-keys"
+        
+        # Rate limiting (optional)
+        - name: RATE_LIMIT_PER_MINUTE
+          value: "60"
+        - name: RATE_LIMIT_PER_HOUR
+          value: "1000"
+        - name: RATE_LIMIT_BURST
+          value: "10"
+        
+        resources:
+          limits:
+            cpu: "2000m"
+            memory: "2Gi"
+          requests:
+            cpu: "1000m"
+            memory: "1Gi"
+        
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+          periodSeconds: 10
+          failureThreshold: 3
+        
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          timeoutSeconds: 5
+          periodSeconds: 30
+          failureThreshold: 3
+
