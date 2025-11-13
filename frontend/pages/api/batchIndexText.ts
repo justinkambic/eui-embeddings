@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { client, INDEX_NAME } from "../../client/es";
 import fetch from "node-fetch";
 import { verifyAdminAuth } from "../../lib/auth";
+import { rateLimit } from "../../lib/rateLimit";
 
 interface TextIndexItem {
   iconName: string;
@@ -18,6 +19,25 @@ export default async function handler(
 ) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  // Rate limiting for admin endpoints (stricter: 10 requests per minute)
+  try {
+    const rateLimitResult = rateLimit(req, 10, 60 * 1000); // 10 per minute
+    res.setHeader("X-RateLimit-Limit", rateLimitResult.limit.toString());
+    res.setHeader("X-RateLimit-Remaining", rateLimitResult.remaining.toString());
+    res.setHeader("X-RateLimit-Reset", new Date(rateLimitResult.reset).toISOString());
+  } catch (error: any) {
+    if (error.statusCode === 429) {
+      res.setHeader("X-RateLimit-Limit", error.rateLimit.limit.toString());
+      res.setHeader("X-RateLimit-Remaining", "0");
+      res.setHeader("X-RateLimit-Reset", new Date(error.rateLimit.reset).toISOString());
+      return res.status(429).json({ 
+        error: "Rate limit exceeded",
+        rateLimit: error.rateLimit
+      });
+    }
+    throw error;
   }
 
   // Optional admin authentication (only enforced if ADMIN_API_KEY is set)

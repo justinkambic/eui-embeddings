@@ -10,14 +10,28 @@ const express = require('express');
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 const HOST = process.env.TOKEN_RENDERER_HOST || "0.0.0.0";
 const PORT = process.env.TOKEN_RENDERER_PORT || process.env.PORT || 3002;
 const BASE_URL = process.env.TOKEN_RENDERER_BASE_URL || `http://${HOST}:${PORT}`;
 
+// Rate limiting configuration (stricter for resource-intensive rendering)
+const RATE_LIMIT_PER_MINUTE = parseInt(process.env.TOKEN_RENDERER_RATE_LIMIT || "10", 10);
+const renderRateLimit = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: RATE_LIMIT_PER_MINUTE, // Limit each IP to 10 requests per windowMs
+  message: 'Too many rendering requests from this IP, please try again later.',
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
+
 // Middleware
 app.use(express.json());
+
+// Apply rate limiting to all routes (rendering is resource-intensive)
+app.use(renderRateLimit);
 
 // Serve static files from dist (webpack build output)
 const distPath = path.join(__dirname, 'dist');

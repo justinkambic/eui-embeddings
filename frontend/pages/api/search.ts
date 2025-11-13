@@ -24,34 +24,37 @@ export default async function handler(
     return res.status(400).json({ error: "Missing 'type' or 'query' field" });
   }
 
+  // Forward request to Python API
+  const pythonApiUrl =
+    process.env.EMBEDDING_SERVICE_URL || "http://localhost:8000";
   try {
-    // Forward request to Python API
-    const pythonApiUrl = process.env.EMBEDDING_SERVICE_URL || "http://localhost:8000";
     const searchUrl = `${pythonApiUrl}/search`;
-    
+
     // Get API key from environment variable
     const apiKey = process.env.FRONTEND_API_KEY;
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
     if (apiKey) {
       headers["X-API-Key"] = apiKey;
     }
 
     const response = await fetch(searchUrl, {
-        method: "POST",
-        headers,
+      method: "POST",
+      headers,
       body: JSON.stringify({
         type,
         query,
         icon_type,
         fields,
       }),
-      });
+    });
 
     if (!response.ok) {
       // Read response body once
       const contentType = response.headers.get("content-type") || "";
       let errorData: any;
-      
+
       if (contentType.includes("application/json")) {
         // FastAPI returns JSON errors with "detail" field
         errorData = await response.json();
@@ -60,10 +63,10 @@ export default async function handler(
         const errorText = await response.text();
         errorData = { error: errorText || "Search failed" };
       }
-      
+
       console.error("Python API error:", errorData);
-      return res.status(response.status).json({ 
-        error: errorData.detail || errorData.error || "Search failed" 
+      return res.status(response.status).json({
+        error: errorData.detail || errorData.error || "Search failed",
       });
     }
 
@@ -71,7 +74,23 @@ export default async function handler(
     return res.status(200).json(data);
   } catch (error: any) {
     console.error("Search proxy error:", error);
-    return res.status(500).json({ error: error.message || "Search failed" });
+
+    // Provide more detailed error messages
+    let errorMessage = "Search failed";
+    if (error.code === "ECONNREFUSED") {
+      errorMessage = `Cannot connect to Python API at ${pythonApiUrl}. Make sure the Python API is running.`;
+    } else if (error.code === "ETIMEDOUT") {
+      errorMessage = `Connection to Python API timed out. The API may be overloaded or not responding.`;
+    } else if (error.message) {
+      errorMessage = error.message;
+    } else if (typeof error === "string") {
+      errorMessage = error;
+    }
+
+    return res.status(500).json({
+      error: errorMessage,
+      details: error.code || "Unknown error",
+      pythonApiUrl: pythonApiUrl,
+    });
   }
 }
-

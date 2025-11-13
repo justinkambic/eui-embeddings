@@ -358,12 +358,6 @@ export function MainPageContent() {
     <>
       <EuiFlexGroup gutterSize="l">
         <EuiFlexItem>
-          {isSearching && (
-            <EuiText size="s" color="subdued">
-              Searching with this image...
-            </EuiText>
-          )}
-          {/* Image upload option */}
           <EuiFilePicker
             id="image-upload"
             accept="image/*"
@@ -423,6 +417,7 @@ export function MainPageContent() {
                   src={searchImageDataUrl}
                   alt="Search image"
                   size="m"
+                  hasShadow
                 />
                 <EuiSpacer size="s" />
               </>

@@ -1,6 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response as FastAPIResponse
+from starlette.responses import Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
@@ -14,6 +15,26 @@ from cairosvg import svg2png
 import base64
 import binascii
 import json
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+import multiprocessing
+import time
+
+# Set multiprocessing start method early to avoid issues with sentence-transformers
+# This must be done before any models are loaded (sentence-transformers uses multiprocessing)
+# On macOS, 'fork' can cause semaphore leaks, so we use 'spawn' instead
+try:
+    current_method = multiprocessing.get_start_method(allow_none=True)
+    if current_method is None:
+        multiprocessing.set_start_method('spawn')
+    elif current_method == 'fork':
+        # Force to spawn if currently fork (macOS default can cause issues)
+        multiprocessing.set_start_method('spawn', force=True)
+except RuntimeError:
+    # Already set or can't be changed, ignore
+    pass
 
 app = FastAPI()
 
@@ -48,6 +69,63 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         # Content Security Policy - adjust as needed for your use case
         response.headers["Content-Security-Policy"] = "default-src 'self'"
+        
+        # Add rate limit headers manually (since headers_enabled=False in slowapi)
+        # Extract rate limit info from request.state (set by slowapi middleware)
+        try:
+            # Get rate limit info from request state (set by slowapi)
+            rate_limit_info = getattr(request.state, 'view_rate_limit', None)
+            
+            if rate_limit_info:
+                # Extract limit from rate limit info
+                # slowapi stores limit info in request.state.view_rate_limit
+                try:
+                    # Try to get limit from the rate limit info object
+                    limit_value = getattr(rate_limit_info, 'limit', None)
+                    if limit_value:
+                        # Parse limit string (e.g., "30 per 1 minute" -> 30)
+                        if isinstance(limit_value, str):
+                            limit_parts = limit_value.split()
+                            limit_int = int(limit_parts[0]) if limit_parts else 60
+                        else:
+                            limit_int = int(limit_value)
+                    else:
+                        limit_int = 60  # Default
+                    
+                    response.headers["X-RateLimit-Limit"] = str(limit_int)
+                    
+                    # Get remaining count
+                    remaining = getattr(rate_limit_info, 'remaining', limit_int - 1)
+                    if remaining is None:
+                        remaining = limit_int - 1
+                    response.headers["X-RateLimit-Remaining"] = str(max(0, int(remaining)))
+                    
+                    # Get reset time
+                    reset_at = getattr(rate_limit_info, 'reset_at', None)
+                    if reset_at:
+                        reset_time = int(reset_at) if isinstance(reset_at, (int, float)) else int(time.time()) + 60
+                    else:
+                        reset_time = int(time.time()) + 60
+                    response.headers["X-RateLimit-Reset"] = str(reset_time)
+                except (AttributeError, ValueError, TypeError) as e:
+                    # Fallback to default values if parsing fails
+                    response.headers["X-RateLimit-Limit"] = "60"
+                    response.headers["X-RateLimit-Remaining"] = "59"
+                    response.headers["X-RateLimit-Reset"] = str(int(time.time()) + 60)
+            else:
+                # No rate limit info available - check if this is a rate-limited endpoint
+                # For endpoints without rate limiting (like /health), don't add headers
+                path = request.url.path
+                if path not in ["/health", "/docs", "/openapi.json", "/redoc"]:
+                    # Add default headers for rate-limited endpoints
+                    response.headers["X-RateLimit-Limit"] = "60"
+                    response.headers["X-RateLimit-Remaining"] = "59"
+                    response.headers["X-RateLimit-Reset"] = str(int(time.time()) + 60)
+        except Exception as e:
+            # Don't break the response if header processing fails
+            # In production, you might want to log this error
+            pass
+        
         return response
 
 # Add security headers middleware (before CORS)
@@ -113,6 +191,37 @@ def load_api_keys():
 
 # Load API keys on startup
 load_api_keys()
+
+# Rate limiting configuration (after API keys are loaded)
+RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
+RATE_LIMIT_PER_HOUR = int(os.getenv("RATE_LIMIT_PER_HOUR", "1000"))
+RATE_LIMIT_BURST = int(os.getenv("RATE_LIMIT_BURST", "10"))
+
+def get_rate_limit_key(request: Request) -> str:
+    """Get rate limit key - use API key if available, otherwise use IP address"""
+    # Try to get API key first (for per-key rate limiting)
+    # Note: API_KEY_HEADER is defined above, so this is safe
+    api_key = request.headers.get(API_KEY_HEADER, "")
+    if api_key and api_key in _valid_api_keys:
+        return f"api_key:{api_key}"
+    # Fall back to IP address
+    return get_remote_address(request)
+
+# Initialize rate limiter
+# Use in-memory storage (sufficient for low traffic)
+# Track by API key (if available) or IP address
+# headers_enabled=True ensures rate limit headers are added to responses
+# Note: slowapi adds headers, but they may not always include Remaining/Reset
+# We'll ensure headers are complete via middleware if needed
+limiter = Limiter(key_func=get_rate_limit_key, headers_enabled=False, auto_check=True)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Add SlowAPI middleware to handle rate limiting and headers
+# This must be added AFTER app.state.limiter is set
+# Note: Middleware executes in reverse order (last added runs first)
+# So this will run before SecurityHeadersMiddleware, allowing rate limit headers to be added first
+app.add_middleware(SlowAPIMiddleware)
 
 async def verify_api_key(request: Request):
     """Dependency to verify API key"""
@@ -198,9 +307,11 @@ async def health_check():
     return health_status
 
 @app.post("/embed", response_model=EmbedResponse, dependencies=[Depends(verify_api_key)])
-async def embed_text(request: EmbedRequest):
+@limiter.limit(f"{RATE_LIMIT_PER_MINUTE}/minute")
+@limiter.limit(f"{RATE_LIMIT_PER_HOUR}/hour")
+async def embed_text(request: Request, embed_request: EmbedRequest):
     # Generate dense embeddings
-    embeddings = text_model.encode(request.content, convert_to_numpy=True).tolist()
+    embeddings = text_model.encode(embed_request.content, convert_to_numpy=True).tolist()
     
     # Generate ELSER sparse embeddings if ES client is available
     sparse_embeddings = None
@@ -210,7 +321,7 @@ async def embed_text(request: EmbedRequest):
             inference_response = es_client.ml.infer_trained_model(
                 model_id=".elser_model_2",
                 body={
-                    "docs": [{"text_field": request.content}]
+                    "docs": [{"text_field": embed_request.content}]
                 }
             )
             
@@ -228,7 +339,9 @@ async def embed_text(request: EmbedRequest):
     )
 
 @app.post("/embed-image", response_model=ImageEmbedResponse, dependencies=[Depends(verify_api_key)])
-async def embed_image(file: UploadFile = File(...)):
+@limiter.limit(f"{RATE_LIMIT_PER_MINUTE}/minute")
+@limiter.limit(f"{RATE_LIMIT_PER_HOUR}/hour")
+async def embed_image(request: Request, file: UploadFile = File(...)):
     """Generate embeddings for an image file"""
     from image_processor import normalize_search_image
     
@@ -246,13 +359,15 @@ async def embed_image(file: UploadFile = File(...)):
     return ImageEmbedResponse(embeddings=embeddings)
 
 @app.post("/embed-svg", response_model=ImageEmbedResponse, dependencies=[Depends(verify_api_key)])
-async def embed_svg(request: SVGEmbedRequest):
+@limiter.limit(f"{RATE_LIMIT_PER_MINUTE}/minute")
+@limiter.limit(f"{RATE_LIMIT_PER_HOUR}/hour")
+async def embed_svg(request: Request, svg_request: SVGEmbedRequest):
     """Generate embeddings for SVG content (converts SVG to image first)"""
     try:
         # Preprocess SVG: ensure it has proper fill and background for cairosvg
         # Many SVGs don't have explicit fill attributes and cairosvg renders them incorrectly
         import re
-        svg_content = request.svg_content
+        svg_content = svg_request.svg_content
         
         # Add white background rectangle first
         # Extract viewBox or create default
@@ -327,7 +442,9 @@ async def embed_svg(request: SVGEmbedRequest):
         raise ValueError(f"Error processing SVG: {str(e)}")
 
 @app.post("/search", response_model=SearchResponse, dependencies=[Depends(verify_api_key)])
-async def search(request: SearchRequest):
+@limiter.limit("30/minute")  # Stricter limit for search endpoint
+@limiter.limit("500/hour")
+async def search(request: Request, search_request: SearchRequest):
     """Search for icons using text, image, or SVG"""
     if not es_client:
         raise HTTPException(status_code=500, detail="Elasticsearch client not configured. Set ELASTICSEARCH_ENDPOINT and ELASTICSEARCH_API_KEY")
@@ -336,9 +453,9 @@ async def search(request: SearchRequest):
     embeddings = None
     sparse_embeddings = None
     
-    if request.type == "text":
+    if search_request.type == "text":
         # Generate text embeddings
-        embeddings = text_model.encode(request.query, convert_to_numpy=True).tolist()
+        embeddings = text_model.encode(search_request.query, convert_to_numpy=True).tolist()
         
         # Generate ELSER sparse embeddings if ES client is available
         if es_client:
@@ -346,7 +463,7 @@ async def search(request: SearchRequest):
                 inference_response = es_client.ml.infer_trained_model(
                     model_id=".elser_model_2",
                     body={
-                        "docs": [{"text_field": request.query}]
+                        "docs": [{"text_field": search_request.query}]
                     }
                 )
                 
@@ -356,10 +473,10 @@ async def search(request: SearchRequest):
             except Exception as e:
                 print(f"Warning: Could not generate ELSER embeddings: {e}")
     
-    elif request.type == "image":
+    elif search_request.type == "image":
         # Decode base64 image
         try:
-            image_bytes = base64.b64decode(request.query)
+            image_bytes = base64.b64decode(search_request.query)
             image = Image.open(io.BytesIO(image_bytes))
             
             from image_processor import normalize_search_image
@@ -370,11 +487,11 @@ async def search(request: SearchRequest):
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Error processing image: {str(e)}")
     
-    elif request.type == "svg":
+    elif search_request.type == "svg":
         # Generate SVG embeddings (reuse embed_svg logic)
         try:
             import re
-            svg_content = request.query
+            svg_content = search_request.query
             
             # Add white background rectangle
             viewbox_match = re.search(r'viewBox=["\']([^"\']+)["\']', svg_content)
@@ -422,10 +539,10 @@ async def search(request: SearchRequest):
     
     # Build filter for icon_type if provided
     icon_type_filter = None
-    if request.icon_type:
+    if search_request.icon_type:
         icon_type_filter = {
             "term": {
-                "icon_type": request.icon_type
+                "icon_type": search_request.icon_type
             }
         }
     
@@ -435,14 +552,14 @@ async def search(request: SearchRequest):
     }
     
     # For text searches, use hybrid search (dense + sparse)
-    if request.type == "text" and sparse_embeddings:
+    if search_request.type == "text" and sparse_embeddings:
         # Hybrid search: combine knn with text_expansion
         bool_query = {
             "should": [
                 {
                     "text_expansion": {
                         "text_embedding_sparse": {
-                            "model_text": request.query,
+                            "model_text": search_request.query,
                             "model_id": ".elser_model_2"
                         }
                     }
@@ -467,7 +584,7 @@ async def search(request: SearchRequest):
         if icon_type_filter:
             search_body["knn"]["filter"] = [icon_type_filter]
     
-    elif request.type == "image" or request.type == "svg":
+    elif search_request.type == "image" or search_request.type == "svg":
         # Image/SVG searches: use fields parameter if provided
         valid_fields = [
             "icon_image_embedding",
@@ -479,14 +596,14 @@ async def search(request: SearchRequest):
         # Determine which fields to search
         fields_to_search = []
         
-        if request.fields and len(request.fields) > 0:
+        if search_request.fields and len(search_request.fields) > 0:
             # Use explicitly provided fields (filter to only valid ones)
-            fields_to_search = [f for f in request.fields if f in valid_fields]
+            fields_to_search = [f for f in search_request.fields if f in valid_fields]
         else:
             # Fall back to icon_type logic for backward compatibility
-            if request.icon_type == "icon":
+            if search_request.icon_type == "icon":
                 fields_to_search = ["icon_image_embedding", "icon_svg_embedding"]
-            elif request.icon_type == "token":
+            elif search_request.icon_type == "token":
                 fields_to_search = ["token_image_embedding", "token_svg_embedding"]
             else:
                 # Default: search all fields
@@ -560,9 +677,17 @@ async def search(request: SearchRequest):
 # Start the server if run directly
 if __name__ == "__main__":
     import uvicorn
+    
     print(f"Starting EUI Icon Embeddings API server on {PYTHON_API_HOST}:{PYTHON_API_PORT}")
     print(f"API keys configured: {len(_valid_api_keys)} key(s)")
     print(f"Elasticsearch: {'configured' if es_client else 'not configured'}")
     print(f"Health check: http://{PYTHON_API_HOST}:{PYTHON_API_PORT}/health")
     print(f"API docs: http://{PYTHON_API_HOST}:{PYTHON_API_PORT}/docs")
-    uvicorn.run(app, host=PYTHON_API_HOST, port=PYTHON_API_PORT)
+    
+    # Run uvicorn - use reload=False when running directly to avoid multiprocessing issues
+    uvicorn.run(
+        app, 
+        host=PYTHON_API_HOST, 
+        port=PYTHON_API_PORT,
+        log_level="info"
+    )

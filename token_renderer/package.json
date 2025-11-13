@@ -14,6 +14,7 @@
     "@elastic/eui": "^109.0.0",
     "@emotion/react": "^11.14.0",
     "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
     "playwright": "^1.40.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"

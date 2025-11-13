@@ -66,15 +66,17 @@ Variables are organized by service with prefixes:
 
 - `RATE_LIMIT_PER_MINUTE` - Rate limit per minute per API key
   - Default: `60`
-  - Used for: Rate limiting middleware
+  - Used for: Rate limiting on `/embed`, `/embed-image`, `/embed-svg` endpoints
+  - Note: `/search` endpoint has stricter limit (30/minute, hardcoded)
 
 - `RATE_LIMIT_PER_HOUR` - Rate limit per hour per API key
   - Default: `1000`
-  - Used for: Rate limiting middleware
+  - Used for: Rate limiting on `/embed`, `/embed-image`, `/embed-svg` endpoints
+  - Note: `/search` endpoint has stricter limit (500/hour, hardcoded)
 
 - `RATE_LIMIT_BURST` - Burst allowance for rate limiting
   - Default: `10`
-  - Used for: Rate limiting middleware
+  - Used for: Rate limiting middleware (currently not used, reserved for future use)
 
 ## Next.js Frontend
 
@@ -128,6 +130,10 @@ Variables are organized by service with prefixes:
 - `TOKEN_RENDERER_BASE_URL` - Base URL for the service (for health checks, etc.)
   - Example: `http://token-renderer:3002` (internal Docker network)
   - Used for: Generating absolute URLs, health checks
+
+- `TOKEN_RENDERER_RATE_LIMIT` - Rate limit per minute per IP for token renderer
+  - Default: `10`
+  - Used for: Rate limiting on token rendering endpoints (rendering is resource-intensive)
 
 **Note**: Token renderer is typically only used during indexing and runs internally in Docker network (not exposed externally).
 

@@ -5,6 +5,84 @@ All notable changes to the EUI Icon Embeddings project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2025-11-12] - Phase 5: Rate Limiting
+
+### Added
+- **Rate limiting for Python API** (`embed.py`):
+  - Integrated `slowapi` library for FastAPI rate limiting
+  - Per-endpoint rate limits:
+    - `/search`: 30 requests/minute, 500 requests/hour (stricter limits)
+    - `/embed`, `/embed-image`, `/embed-svg`: 60 requests/minute, 1000 requests/hour (configurable)
+  - Rate limiting tracks by API key (if available) or IP address
+  - Rate limit headers added to all responses (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`)
+  - Health endpoint excluded from rate limiting
+  - Manual header injection in middleware to ensure all headers are present
+- **Rate limiting for Next.js API routes**:
+  - Created `frontend/lib/rateLimit.ts` for in-memory rate limiting
+  - Added rate limiting to admin endpoints (`/api/batchIndexImages`, `/api/batchIndexSVG`, `/api/batchIndexText`)
+  - Stricter limits: 10 requests per minute for admin operations
+  - Rate limit headers included in responses
+- **Rate limiting for Token Renderer**:
+  - Integrated `express-rate-limit` middleware
+  - Default: 10 requests per minute per IP (configurable via `TOKEN_RENDERER_RATE_LIMIT`)
+  - Applied to all routes (rendering is resource-intensive)
+- **Environment variables**:
+  - `RATE_LIMIT_PER_MINUTE` - Default: 60 requests/minute
+  - `RATE_LIMIT_PER_HOUR` - Default: 1000 requests/hour
+  - `RATE_LIMIT_BURST` - Default: 10 (reserved for future use)
+  - `TOKEN_RENDERER_RATE_LIMIT` - Default: 10 requests/minute
+- **Functional test script**:
+  - `test_phase5_rate_limiting.py` - Comprehensive test script for rate limiting functionality
+  - Tests rate limit headers, request limits, and API key authentication
+  - Supports `TEST_API_KEY` environment variable for testing with specific keys
+- **Documentation**:
+  - `docs/PHASE5_RATE_LIMITING_IMPLEMENTATION.md` - Phase 5 implementation details
+  - `docs/PHASE5_PRE_COMMIT_CHECKLIST.md` - Pre-commit verification checklist
+  - `docs/PHASE5_RATE_LIMIT_HEADERS_FIX.md` - Documentation for rate limit header fixes
+  - `scripts/verify-phase5.sh` - Automated verification script for Phase 5
+
+### Changed
+- **Python API** (`embed.py`):
+  - Added rate limiting middleware and decorators to protected endpoints
+  - Modified endpoint signatures to include `Request` parameter for rate limiting
+  - Updated security headers middleware to extract rate limit info from `request.state.view_rate_limit` and add headers manually
+  - Set `headers_enabled=False` in slowapi to avoid response parameter requirement issues
+  - Added multiprocessing start method configuration (`spawn`) to prevent semaphore leaks on macOS
+  - Modified uvicorn startup to remove `reload=True` and set explicit `log_level="info"` when running directly
+  - Middleware order: `SlowAPIMiddleware` added after limiter initialization, before security headers
+- **Frontend API routes**:
+  - Added rate limiting checks before admin authentication
+  - Added rate limit headers to responses
+  - Improved error handling in `frontend/pages/api/search.ts` with detailed connection error messages
+- **Token Renderer** (`token_renderer/server.js`):
+  - Added express-rate-limit middleware to all routes
+- **Dependencies**:
+  - Added `slowapi>=0.1.9` to `requirements.txt`
+  - Added `express-rate-limit>=7.1.5` to `token_renderer/package.json`
+- **Documentation**:
+  - Updated `docs/ENVIRONMENT_VARIABLES.md` with rate limiting configuration
+
+### Fixed
+- **Rate limit headers**:
+  - Fixed issue where `X-RateLimit-Remaining` and `X-RateLimit-Reset` headers were missing from responses
+  - Implemented manual header injection in middleware to ensure all three headers are always present
+  - Headers now correctly extracted from slowapi's `request.state.view_rate_limit` object
+- **Python API startup**:
+  - Fixed semaphore leak warnings on macOS by setting multiprocessing start method to `spawn`
+  - Fixed server shutdown issues when running directly with `python embed.py`
+- **slowapi integration**:
+  - Fixed `Exception: parameter 'response' must be an instance of starlette.responses.Response` error
+  - Disabled slowapi's automatic header injection (`headers_enabled=False`) and handled headers manually
+- **Frontend error handling**:
+  - Improved error messages for connection failures (`ECONNREFUSED`, `ETIMEDOUT`) in search API proxy
+  - Added detailed error information including Python API URL for debugging
+
+### Security
+- Rate limiting protects against abuse and DoS attacks
+- Per-API-key rate limiting allows different limits per client
+- Stricter limits on resource-intensive endpoints (search, rendering)
+- Rate limit headers provide transparency to clients
+
 ## [2025-11-12] - Phase 4: API Key Authentication
 
 ### Added
