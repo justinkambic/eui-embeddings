@@ -1,0 +1,65 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: eui-token-renderer
+  annotations:
+    run.googleapis.com/ingress: internal  # Internal only - not exposed externally
+    run.googleapis.com/execution-environment: gen2
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "2"  # Low max scale - only used for indexing
+        run.googleapis.com/cpu-throttling: "false"  # Disable throttling for better performance
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      containerConcurrency: 5  # Low concurrency - rendering is resource-intensive
+      timeoutSeconds: 300  # 5 minutes - rendering can take time
+      serviceAccountName: eui-token-renderer-sa@PROJECT_ID.iam.gserviceaccount.com
+      containers:
+      - image: gcr.io/PROJECT_ID/eui-token-renderer:latest
+        ports:
+        - name: http1
+          containerPort: 3002
+        env:
+        # Token renderer configuration
+        - name: TOKEN_RENDERER_HOST
+          value: "0.0.0.0"
+        - name: TOKEN_RENDERER_PORT
+          value: "3002"
+        - name: TOKEN_RENDERER_BASE_URL
+          value: "http://eui-token-renderer-<hash>-uc.a.run.app"  # Update with actual URL
+        - name: NODE_ENV
+          value: "production"
+        
+        # Rate limiting (stricter for resource-intensive rendering)
+        - name: TOKEN_RENDERER_RATE_LIMIT
+          value: "10"  # 10 requests per minute
+        
+        resources:
+          limits:
+            cpu: "2000m"  # 2 vCPU - rendering needs CPU
+            memory: "4Gi"  # 4 GB - Playwright needs memory
+          requests:
+            cpu: "1000m"
+            memory: "2Gi"
+        
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 3002
+          initialDelaySeconds: 30  # Longer delay - Playwright initialization takes time
+          timeoutSeconds: 10
+          periodSeconds: 10
+          failureThreshold: 5
+        
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3002
+          initialDelaySeconds: 60
+          timeoutSeconds: 10
+          periodSeconds: 30
+          failureThreshold: 3
+

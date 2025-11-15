@@ -1,0 +1,117 @@
+# Cloud Build configuration for building and deploying EUI Icon Embeddings services
+# This file is used by Google Cloud Build to build Docker images and deploy to Cloud Run
+#
+# Usage:
+#   gcloud builds submit --config=cloudbuild.yaml
+#
+# Or trigger via Cloud Build triggers (recommended for CI/CD)
+
+steps:
+  # Build Python API Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-python-api'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/eui-python-api:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/eui-python-api:latest'
+      - '-f'
+      - 'Dockerfile.python'
+      - '.'
+    waitFor: ['-']
+
+  # Build Frontend Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-frontend'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/eui-frontend:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/eui-frontend:latest'
+      - '-f'
+      - 'Dockerfile.frontend'
+      - '.'
+    waitFor: ['-']
+
+  # Push Python API image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-python-api'
+    args:
+      - 'push'
+      - '--all-tags'
+      - 'gcr.io/$PROJECT_ID/eui-python-api'
+    waitFor: ['build-python-api']
+
+  # Push Frontend image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-frontend'
+    args:
+      - 'push'
+      - '--all-tags'
+      - 'gcr.io/$PROJECT_ID/eui-frontend'
+    waitFor: ['build-frontend']
+
+  # Deploy Python API to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy-python-api'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'services'
+      - 'update'
+      - 'eui-python-api'
+      - '--image=gcr.io/$PROJECT_ID/eui-python-api:$SHORT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      # Use service account from Cloud Run YAML
+      # Environment variables and secrets are configured in cloud-run-python.yaml
+    waitFor: ['push-python-api']
+
+  # Deploy Frontend to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy-frontend'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'services'
+      - 'update'
+      - 'eui-frontend'
+      - '--image=gcr.io/$PROJECT_ID/eui-frontend:$SHORT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      # Use service account from Cloud Run YAML
+      # Environment variables and secrets are configured in cloud-run-frontend.yaml
+    waitFor: ['push-frontend']
+
+# Substitutions allow for dynamic values
+substitutions:
+  # PROJECT_ID is automatically set by Cloud Build
+  # SHORT_SHA is automatically set by Cloud Build (first 7 chars of commit SHA)
+  # You can add custom substitutions here if needed
+
+# Build options
+options:
+  # Use machine type with more resources for faster builds
+  machineType: 'E2_HIGHCPU_8'
+  # Logging configuration
+  logging: CLOUD_LOGGING_ONLY
+  # Timeout for entire build (default is 10 minutes, increase if needed)
+  timeout: '1200s'  # 20 minutes
+
+# Images to be pushed to Container Registry
+images:
+  - 'gcr.io/$PROJECT_ID/eui-python-api:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/eui-python-api:latest'
+  - 'gcr.io/$PROJECT_ID/eui-frontend:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/eui-frontend:latest'
+
+# Tags for the build (useful for filtering builds)
+tags:
+  - 'python-api'
+  - 'frontend'
+  - 'cloud-run'
+

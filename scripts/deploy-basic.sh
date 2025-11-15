@@ -1,0 +1,308 @@
+#!/bin/bash
+# Basic deployment script for EUI Icon Embeddings to Cloud Run
+# This script deploys containers with minimal configuration - no service accounts or Secret Manager
+#
+# Usage:
+#   ./scripts/deploy-basic.sh [python|frontend|both]
+#
+# Prerequisites:
+#   - gcloud CLI installed and authenticated
+#   - Docker installed (for local builds, optional)
+#   - PROJECT_ID environment variable set
+#   - Environment variables set (see .env.basic)
+
+set -euo pipefail
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Configuration
+PROJECT_ID="${PROJECT_ID:-}"
+REGION="${REGION:-us-central1}"
+SERVICE_TO_DEPLOY="${1:-both}"
+# Frontend authentication: set to "public" to allow unauthenticated access
+FRONTEND_AUTH="${FRONTEND_AUTH:-private}"
+
+# Function to print colored output
+print_info() {
+    echo -e "${GREEN}[INFO]${NC} $1"
+}
+
+print_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+print_header() {
+    echo -e "\n${BLUE}============================================================${NC}"
+    echo -e "${BLUE}$1${NC}"
+    echo -e "${BLUE}============================================================${NC}\n"
+}
+
+# Check prerequisites
+check_prerequisites() {
+    if [ -z "$PROJECT_ID" ]; then
+        PROJECT_ID=$(gcloud config get-value project 2>/dev/null || echo "")
+        if [ -z "$PROJECT_ID" ]; then
+            print_error "PROJECT_ID not set. Set it with: export PROJECT_ID=your-project-id"
+            exit 1
+        fi
+    fi
+    
+    print_info "Using project: $PROJECT_ID"
+    print_info "Using region: $REGION"
+    
+    # Verify gcloud is authenticated
+    if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q .; then
+        print_error "Not authenticated with gcloud. Run: gcloud auth login"
+        exit 1
+    fi
+    
+    # Check if Cloud Run API is enabled
+    if ! gcloud services list --enabled --filter="name:run.googleapis.com" --format="value(name)" | grep -q run; then
+        print_warn "Cloud Run API not enabled. Enabling now..."
+        gcloud services enable run.googleapis.com --project="$PROJECT_ID"
+    fi
+}
+
+# Deploy Python API
+deploy_python_api() {
+    print_header "Deploying Python API"
+    
+    # Check for required environment variables
+    if [ -z "${ELASTICSEARCH_ENDPOINT:-}" ]; then
+        print_error "ELASTICSEARCH_ENDPOINT not set. Set it before deploying."
+        exit 1
+    fi
+    
+    if [ -z "${ELASTICSEARCH_API_KEY:-}" ]; then
+        print_error "ELASTICSEARCH_API_KEY not set. Set it before deploying."
+        exit 1
+    fi
+    
+    # Build environment variables string
+    ENV_VARS="ELASTICSEARCH_ENDPOINT=$ELASTICSEARCH_ENDPOINT"
+    ENV_VARS="$ENV_VARS,ELASTICSEARCH_API_KEY=$ELASTICSEARCH_API_KEY"
+    ENV_VARS="$ENV_VARS,PYTHON_API_HOST=0.0.0.0"
+    # Set Hugging Face cache location (models are pre-downloaded in Docker image)
+    ENV_VARS="$ENV_VARS,TRANSFORMERS_CACHE=/app/.cache/huggingface"
+    ENV_VARS="$ENV_VARS,HF_HOME=/app/.cache/huggingface"
+    ENV_VARS="$ENV_VARS,HF_DATASETS_CACHE=/app/.cache/huggingface"
+    # Note: PORT is automatically set by Cloud Run, don't set it manually
+    
+    # Add optional environment variables
+    [ -n "${PYTHON_API_BASE_URL:-}" ] && ENV_VARS="$ENV_VARS,PYTHON_API_BASE_URL=$PYTHON_API_BASE_URL"
+    [ -n "${CORS_ORIGINS:-}" ] && ENV_VARS="$ENV_VARS,CORS_ORIGINS=$CORS_ORIGINS"
+    [ -n "${API_KEYS:-}" ] && ENV_VARS="$ENV_VARS,API_KEYS=$API_KEYS"
+    [ -n "${API_KEY_HEADER:-}" ] && ENV_VARS="$ENV_VARS,API_KEY_HEADER=${API_KEY_HEADER:-X-API-Key}"
+    [ -n "${RATE_LIMIT_PER_MINUTE:-}" ] && ENV_VARS="$ENV_VARS,RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}"
+    [ -n "${RATE_LIMIT_PER_HOUR:-}" ] && ENV_VARS="$ENV_VARS,RATE_LIMIT_PER_HOUR=${RATE_LIMIT_PER_HOUR:-1000}"
+    
+    print_info "Deploying Python API to Cloud Run..."
+    
+    # Build Docker image first (required for system dependencies like cairo)
+    print_info "Building Docker image..."
+    
+    # Use Artifact Registry (Container Registry is deprecated)
+    ARTIFACT_REGISTRY="${ARTIFACT_REGISTRY:-$REGION-docker.pkg.dev}"
+    IMAGE_NAME="$ARTIFACT_REGISTRY/$PROJECT_ID/cloud-run-source-deploy/eui-python-api:latest"
+    
+    # Ensure Artifact Registry repository exists
+    print_info "Ensuring Artifact Registry repository exists..."
+    gcloud artifacts repositories create cloud-run-source-deploy \
+        --repository-format=docker \
+        --location=$REGION \
+        --project=$PROJECT_ID \
+        2>/dev/null || print_info "Repository already exists or created"
+    
+    # Authenticate Docker with Artifact Registry
+    print_info "Authenticating Docker with Artifact Registry..."
+    gcloud auth configure-docker $ARTIFACT_REGISTRY --quiet
+    
+    # Build for linux/amd64 (Cloud Run requirement)
+    # Use --no-cache for model download step to ensure models are always downloaded
+    print_info "Building Docker image (this may take several minutes to download models)..."
+    docker build --platform linux/amd64 --no-cache -t "$IMAGE_NAME" -f Dockerfile.python . || {
+        print_error "Docker build failed. Make sure Docker is installed and running."
+        exit 1
+    }
+    
+    print_info "Pushing Docker image to Artifact Registry..."
+    docker push "$IMAGE_NAME" || {
+        print_error "Docker push failed. Make sure you have permission to push to Artifact Registry"
+        exit 1
+    }
+    
+    print_info "Deploying to Cloud Run..."
+    gcloud run deploy eui-python-api \
+        --image "$IMAGE_NAME" \
+        --platform managed \
+        --region "$REGION" \
+        --project "$PROJECT_ID" \
+        --allow-unauthenticated \
+        --set-env-vars "$ENV_VARS" \
+        --memory 2Gi \
+        --cpu 2 \
+        --timeout 300 \
+        --max-instances 10 \
+        --min-instances 0 \
+        --cpu-boost
+    
+    print_info "Python API deployed successfully!"
+    
+    # Get service URL
+    SERVICE_URL=$(gcloud run services describe eui-python-api \
+        --region "$REGION" \
+        --project "$PROJECT_ID" \
+        --format="value(status.url)")
+    
+    print_info "Python API URL: $SERVICE_URL"
+    echo "export PYTHON_API_URL=$SERVICE_URL" >> /tmp/eui-deployment-vars.sh
+}
+
+# Deploy Frontend
+deploy_frontend() {
+    print_header "Deploying Frontend"
+    
+    # Check for required environment variables
+    if [ -z "${EMBEDDING_SERVICE_URL:-}" ]; then
+        print_error "EMBEDDING_SERVICE_URL not set. Set it before deploying."
+        print_info "If Python API was just deployed, it should be in /tmp/eui-deployment-vars.sh"
+        exit 1
+    fi
+    
+    # Build environment variables string
+    ENV_VARS="EMBEDDING_SERVICE_URL=$EMBEDDING_SERVICE_URL"
+    ENV_VARS="$ENV_VARS,NEXT_PUBLIC_EMBEDDING_SERVICE_URL=$EMBEDDING_SERVICE_URL"
+    # Note: PORT is automatically set by Cloud Run, don't set it manually
+    ENV_VARS="$ENV_VARS,NODE_ENV=production"
+    
+    # Add optional environment variables
+    [ -n "${NEXT_PUBLIC_FRONTEND_URL:-}" ] && ENV_VARS="$ENV_VARS,NEXT_PUBLIC_FRONTEND_URL=$NEXT_PUBLIC_FRONTEND_URL"
+    [ -n "${FRONTEND_API_KEY:-}" ] && ENV_VARS="$ENV_VARS,FRONTEND_API_KEY=$FRONTEND_API_KEY"
+    [ -n "${ELASTICSEARCH_ENDPOINT:-}" ] && ENV_VARS="$ENV_VARS,ELASTICSEARCH_ENDPOINT=$ELASTICSEARCH_ENDPOINT"
+    [ -n "${ELASTICSEARCH_API_KEY:-}" ] && ENV_VARS="$ENV_VARS,ELASTICSEARCH_API_KEY=$ELASTICSEARCH_API_KEY"
+    
+    print_info "Deploying Frontend to Cloud Run..."
+    
+    # Determine authentication setting
+    if [ "$FRONTEND_AUTH" = "public" ]; then
+        AUTH_FLAG="--allow-unauthenticated"
+        print_info "Frontend will be publicly accessible"
+    else
+        AUTH_FLAG="--no-allow-unauthenticated"
+        print_info "Frontend will require authentication (private)"
+        print_warn "After deployment, grant access with:"
+        print_warn "  gcloud run services add-iam-policy-binding eui-frontend \\"
+        print_warn "    --region=$REGION --project=$PROJECT_ID \\"
+        print_warn "    --member='user:YOUR_EMAIL@example.com' \\"
+        print_warn "    --role='roles/run.invoker'"
+    fi
+    
+    # Use Dockerfile for frontend (more reliable than buildpacks)
+    print_info "Building Docker image for frontend..."
+    
+    # Use Artifact Registry (Container Registry is deprecated)
+    ARTIFACT_REGISTRY="${ARTIFACT_REGISTRY:-$REGION-docker.pkg.dev}"
+    IMAGE_NAME="$ARTIFACT_REGISTRY/$PROJECT_ID/cloud-run-source-deploy/eui-frontend:latest"
+    
+    # Ensure Artifact Registry repository exists
+    print_info "Ensuring Artifact Registry repository exists..."
+    gcloud artifacts repositories create cloud-run-source-deploy \
+        --repository-format=docker \
+        --location=$REGION \
+        --project=$PROJECT_ID \
+        2>/dev/null || print_info "Repository already exists or created"
+    
+    # Authenticate Docker with Artifact Registry
+    print_info "Authenticating Docker with Artifact Registry..."
+    gcloud auth configure-docker $ARTIFACT_REGISTRY --quiet
+    
+    # Build for linux/amd64 (Cloud Run requirement)
+    docker build --platform linux/amd64 -t "$IMAGE_NAME" -f Dockerfile.frontend . || {
+        print_error "Docker build failed. Make sure Docker is installed and running."
+        exit 1
+    }
+    
+    print_info "Pushing Docker image to Artifact Registry..."
+    docker push "$IMAGE_NAME" || {
+        print_error "Docker push failed. Make sure you have permission to push to Artifact Registry"
+        exit 1
+    }
+    
+    print_info "Deploying to Cloud Run..."
+    gcloud run deploy eui-frontend \
+        --image "$IMAGE_NAME" \
+        --platform managed \
+        --region "$REGION" \
+        --project "$PROJECT_ID" \
+        $AUTH_FLAG \
+        --set-env-vars "$ENV_VARS" \
+        --memory 1Gi \
+        --cpu 1 \
+        --timeout 300 \
+        --max-instances 5 \
+        --min-instances 0 \
+        --cpu-boost
+    
+    print_info "Frontend deployed successfully!"
+    
+    # Get service URL
+    SERVICE_URL=$(gcloud run services describe eui-frontend \
+        --region "$REGION" \
+        --project "$PROJECT_ID" \
+        --format="value(status.url)")
+    
+    print_info "Frontend URL: $SERVICE_URL"
+    echo "export FRONTEND_URL=$SERVICE_URL" >> /tmp/eui-deployment-vars.sh
+}
+
+# Main deployment logic
+main() {
+    print_header "EUI Icon Embeddings - Basic Deployment"
+    
+    check_prerequisites
+    
+    # Load deployment vars if they exist (from previous deployments)
+    if [ -f /tmp/eui-deployment-vars.sh ]; then
+        print_info "Loading previous deployment URLs..."
+        source /tmp/eui-deployment-vars.sh
+    fi
+    
+    case "$SERVICE_TO_DEPLOY" in
+        python)
+            deploy_python_api
+            ;;
+        frontend)
+            deploy_frontend
+            ;;
+        both)
+            deploy_python_api
+            # Set EMBEDDING_SERVICE_URL for frontend deployment
+            if [ -f /tmp/eui-deployment-vars.sh ]; then
+                source /tmp/eui-deployment-vars.sh
+                export EMBEDDING_SERVICE_URL="$PYTHON_API_URL"
+            fi
+            deploy_frontend
+            ;;
+        *)
+            print_error "Invalid service: $SERVICE_TO_DEPLOY"
+            echo "Usage: $0 [python|frontend|both]"
+            exit 1
+            ;;
+    esac
+    
+    print_header "Deployment Complete!"
+    print_info "Service URLs saved to /tmp/eui-deployment-vars.sh"
+    print_info "To use them: source /tmp/eui-deployment-vars.sh"
+}
+
+main "$@"
+
