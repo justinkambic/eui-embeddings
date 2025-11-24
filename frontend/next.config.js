@@ -14,11 +14,6 @@ const nextConfig = {
   
   // Enable standalone output for Docker
   output: 'standalone',
-  
-  // Enable instrumentation hook for OpenTelemetry
-  experimental: {
-    instrumentationHook: true,
-  },
 };
 
 module.exports = nextConfig;

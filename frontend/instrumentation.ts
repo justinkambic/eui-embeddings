@@ -47,19 +47,23 @@ export async function register() {
     };
 
     // Initialize OpenTelemetry SDK
+    // Note: Using type assertion to work around TypeScript version compatibility issue
+    // between @opentelemetry/sdk-node and @opentelemetry/sdk-metrics
+    const metricReader = new PeriodicExportingMetricReader({
+      exporter: new OTLPMetricExporter({
+        url: `${otlpEndpoint}/v1/metrics`,
+        headers,
+      }),
+      exportIntervalMillis: 60000, // Export every 60 seconds
+    });
+
     const sdk = new NodeSDK({
       resource: new Resource(resourceAttributes),
       traceExporter: new OTLPTraceExporter({
         url: `${otlpEndpoint}/v1/traces`,
         headers,
       }),
-      metricReader: new PeriodicExportingMetricReader({
-        exporter: new OTLPMetricExporter({
-          url: `${otlpEndpoint}/v1/metrics`,
-          headers,
-        }),
-        exportIntervalMillis: 60000, // Export every 60 seconds
-      }),
+      metricReader: metricReader as any, // Type assertion to resolve version compatibility
       instrumentations: [
         new HttpInstrumentation(),
         new FetchInstrumentation(),

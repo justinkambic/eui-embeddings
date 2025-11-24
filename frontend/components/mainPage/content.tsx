@@ -13,9 +13,31 @@ import {
   EuiImage,
   EuiText,
   EuiToken,
+  EuiSkeletonText,
 } from "@elastic/eui";
 import { useState, useEffect, useMemo } from "react";
 import type { CriteriaWithPagination } from "@elastic/eui";
+
+// Performance monitoring helpers
+const markPerformance = (name: string) => {
+  if (typeof window !== 'undefined' && 'performance' in window && 'mark' in window.performance) {
+    window.performance.mark(name);
+  }
+};
+
+const measurePerformance = (name: string, startMark: string, endMark: string) => {
+  if (typeof window !== 'undefined' && 'performance' in window && 'measure' in window.performance) {
+    try {
+      window.performance.measure(name, startMark, endMark);
+      const measure = window.performance.getEntriesByName(name)[0];
+      if (measure) {
+        console.log(`[Performance] ${name}: ${measure.duration.toFixed(2)}ms`);
+      }
+    } catch (e) {
+      // Ignore if marks don't exist
+    }
+  }
+};
 
 interface SearchResult {
   icon_name: string;
@@ -26,6 +48,14 @@ interface SearchResult {
 }
 
 export function MainPageContent() {
+  // Performance mark: component mount
+  useEffect(() => {
+    markPerformance('main-page-content-mounted');
+    return () => {
+      markPerformance('main-page-content-unmounted');
+    };
+  }, []);
+
   // const [searchTerm, setSearchTerm] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(
     null
@@ -76,6 +106,7 @@ export function MainPageContent() {
 
   // Perform image search
   const performImageSearch = async (imageBase64: string) => {
+    markPerformance('image-search-start');
     setIsSearching(true);
     try {
       const response = await fetch("/api/search", {
@@ -89,6 +120,9 @@ export function MainPageContent() {
         }),
       });
 
+      markPerformance('image-search-response-received');
+      measurePerformance('image-search-network-time', 'image-search-start', 'image-search-response-received');
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Search failed" }));
         console.error("Search API error:", errorData);
@@ -96,10 +130,14 @@ export function MainPageContent() {
       }
 
       const data = await response.json();
+      markPerformance('image-search-complete');
+      measurePerformance('image-search-total-time', 'image-search-start', 'image-search-complete');
       console.log("search results", data);
       setSearchResults(data.results || []);
       // setSearchType("image");
     } catch (error) {
+      markPerformance('image-search-error');
+      measurePerformance('image-search-error-time', 'image-search-start', 'image-search-error');
       console.error("Error performing image search:", error);
       setSearchResults([]);
     } finally {
@@ -114,6 +152,7 @@ export function MainPageContent() {
       return;
     }
 
+    markPerformance('svg-search-start');
     setIsSearching(true);
     try {
       const response = await fetch("/api/search", {
@@ -127,6 +166,9 @@ export function MainPageContent() {
         }),
       });
 
+      markPerformance('svg-search-response-received');
+      measurePerformance('svg-search-network-time', 'svg-search-start', 'svg-search-response-received');
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Search failed" }));
         console.error("Search API error:", errorData);
@@ -134,9 +176,13 @@ export function MainPageContent() {
       }
 
       const data = await response.json();
+      markPerformance('svg-search-complete');
+      measurePerformance('svg-search-total-time', 'svg-search-start', 'svg-search-complete');
       console.log("SVG search results", data);
       setSearchResults(data.results || []);
     } catch (error) {
+      markPerformance('svg-search-error');
+      measurePerformance('svg-search-error-time', 'svg-search-start', 'svg-search-error');
       console.error("Error performing SVG search:", error);
       setSearchResults([]);
     } finally {
@@ -402,6 +448,7 @@ export function MainPageContent() {
           </EuiFormRow>
         </EuiFlexItem>
         <EuiFlexItem>
+          {/* Fixed size container to prevent layout shift */}
           <div
             style={{
               width: 200,
@@ -409,18 +456,16 @@ export function MainPageContent() {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
+              minHeight: 200,
             }}
           >
             {searchImageDataUrl && (
-              <>
-                <EuiImage
-                  src={searchImageDataUrl}
-                  alt="Search image"
-                  size="m"
-                  hasShadow
-                />
-                <EuiSpacer size="s" />
-              </>
+              <EuiImage
+                src={searchImageDataUrl}
+                alt="Search image"
+                size="m"
+                hasShadow
+              />
             )}
             {svgCode.trim() && !searchImageDataUrl && (
               <div
@@ -442,42 +487,55 @@ export function MainPageContent() {
         </EuiFlexItem>
       </EuiFlexGroup>
 
-      {isSearching && (
-        <>
-          <EuiSpacer size="m" />
-          <EuiLoadingSpinner size="l" />
-          <EuiText size="s" color="subdued">
-            Searching...
-          </EuiText>
-        </>
-      )}
+      {/* Results section with fixed height to prevent layout shift */}
+      <div style={{ minHeight: searchResults || isSearching ? '400px' : '0px' }}>
+        {isSearching && (
+          <>
+            <EuiSpacer size="m" />
+            <EuiFlexGroup direction="column" alignItems="center">
+              <EuiLoadingSpinner size="l" />
+              <EuiSpacer size="s" />
+              <EuiText size="s" color="subdued">
+                Searching...
+              </EuiText>
+              {/* Skeleton for table while loading */}
+              <EuiSpacer size="m" />
+              <div style={{ width: '100%' }}>
+                <EuiSkeletonText lines={5} />
+              </div>
+            </EuiFlexGroup>
+          </>
+        )}
 
-      {searchResults && !isSearching && (
-        <>
-          <EuiSpacer size="m" />
-          <EuiText>
-            <h3>Search Results ({searchResults.length})</h3>
-          </EuiText>
-        </>
-      )}
-
-      <EuiSpacer size="l" />
-
-      {searchResults && searchResults.length > 0 && (
-        <EuiBasicTable
-          items={searchResults}
-          columns={columns}
-          pagination={{
-            pageIndex: pagination.pageIndex,
-            pageSize: pagination.pageSize,
-            totalItemCount: searchResults.length,
-            pageSizeOptions: [10, 20, 50],
-            showPerPageOptions: true,
-          }}
-          onChange={onTableChange}
-          responsiveBreakpoint={false}
-        />
-      )}
+        {searchResults && !isSearching && (
+          <>
+            <EuiSpacer size="m" />
+            <EuiText>
+              <h3>Search Results ({searchResults.length})</h3>
+            </EuiText>
+            <EuiSpacer size="m" />
+            {searchResults.length > 0 ? (
+              <EuiBasicTable
+                items={searchResults}
+                columns={columns}
+                pagination={{
+                  pageIndex: pagination.pageIndex,
+                  pageSize: pagination.pageSize,
+                  totalItemCount: searchResults.length,
+                  pageSizeOptions: [10, 20, 50],
+                  showPerPageOptions: true,
+                }}
+                onChange={onTableChange}
+                responsiveBreakpoint={false}
+              />
+            ) : (
+              <EuiText color="subdued">
+                No results found. Try a different search.
+              </EuiText>
+            )}
+          </>
+        )}
+      </div>
     </>
   );
 }

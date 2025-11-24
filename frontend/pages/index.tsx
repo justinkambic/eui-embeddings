@@ -1,44 +1,43 @@
 import PageTemplate from "../components/pageTemplate";
-import { GetServerSideProps } from "next";
-import { client, INDEX_NAME } from "../client/es";
 import { MainPageContent } from "../components/mainPage/content";
-type HomePageProps = {
-  iconTypes: string[];
+import { useEffect } from "react";
+
+// Performance monitoring for page load
+const markPageLoad = () => {
+  if (typeof window !== 'undefined' && 'performance' in window) {
+    // Mark page load start
+    window.performance.mark('home-page-load-start');
+    
+    // Measure time to interactive
+    if ('addEventListener' in window) {
+      window.addEventListener('load', () => {
+        window.performance.mark('home-page-load-complete');
+        try {
+          window.performance.measure('home-page-load-time', 'home-page-load-start', 'home-page-load-complete');
+          const measure = window.performance.getEntriesByName('home-page-load-time')[0];
+          if (measure) {
+            console.log(`[Performance] Home page load: ${measure.duration.toFixed(2)}ms`);
+          }
+        } catch (e) {
+          // Ignore if marks don't exist
+        }
+      });
+    }
+  }
 };
 
-export default function HomePage({ iconTypes }: HomePageProps) {
+export default function HomePage() {
+  useEffect(() => {
+    markPageLoad();
+    // Mark when component is mounted and rendered
+    if (typeof window !== 'undefined' && 'performance' in window && 'mark' in window.performance) {
+      window.performance.mark('home-page-rendered');
+    }
+  }, []);
+
   return (
     <PageTemplate>
       <MainPageContent />
     </PageTemplate>
   );
 }
-
-export const getServerSideProps: GetServerSideProps = async (context) => {
-  try {
-    const esRes = await client.search({
-      index: INDEX_NAME,
-      size: 10000,
-      body: {
-        query: {
-          match_all: {},
-        },
-      } as any,
-    });
-    const hits = (esRes.hits.hits as any) || [];
-    const iconTypes = hits.map((b: any) => b._id);
-    return {
-      props: {
-        iconTypes,
-      },
-    };
-  } catch (e: any) {
-    console.log("error fetching from es", e);
-    return {
-      props: {
-        iconTypes: [],
-        error: e.message || "Failed to fetch iconTypes",
-      },
-    };
-  }
-};
