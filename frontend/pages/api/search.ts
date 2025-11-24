@@ -1,5 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import fetch from "node-fetch";
+import { trace } from "@opentelemetry/api";
+
+const tracer = trace.getTracer("eui-frontend-api");
 
 type SearchType = "text" | "image" | "svg";
 
@@ -25,10 +28,29 @@ export default async function handler(
   }
 
   // Forward request to Python API
-  const pythonApiUrl =
+  const searchApiUrl =
     process.env.EMBEDDING_SERVICE_URL || "http://localhost:8000";
+  
+  // Create span for search operation
+  const span = tracer.startSpan("api.search", {
+    attributes: {
+      "search.type": type,
+      "search.has_icon_type": !!icon_type,
+      "search.has_fields": !!(fields && fields.length > 0),
+      "http.method": req.method || "POST",
+      "http.route": "/api/search",
+    },
+  });
+
+  if (icon_type) {
+    span.setAttribute("search.icon_type", icon_type);
+  }
+  if (fields && fields.length > 0) {
+    span.setAttribute("search.fields", fields.join(","));
+  }
+
   try {
-    const searchUrl = `${pythonApiUrl}/search`;
+    const searchUrl = `${searchApiUrl}/search`;
 
     // Get API key from environment variable
     const apiKey = process.env.FRONTEND_API_KEY;
@@ -65,20 +87,40 @@ export default async function handler(
       }
 
       console.error("Python API error:", errorData);
+      
+      // Record error in span
+      span.setAttribute("http.status_code", response.status);
+      span.recordException(new Error(errorData.detail || errorData.error || "Search failed"));
+      span.setStatus({ code: 2, message: errorData.detail || errorData.error || "Search failed" }); // ERROR
+      span.end();
+      
       return res.status(response.status).json({
         error: errorData.detail || errorData.error || "Search failed",
       });
     }
 
-    const data = await response.json();
+    const data = await response.json() as { results?: any[]; total?: number | { value?: number } };
+    
+    // Set span attributes for successful response
+    span.setAttribute("http.status_code", 200);
+    span.setAttribute("search.result_count", data.results?.length || 0);
+    span.setAttribute("search.total_results", typeof data.total === 'object' ? data.total?.value || 0 : (data.total || 0));
+    span.setStatus({ code: 1 }); // OK
+    span.end();
+    
     return res.status(200).json(data);
   } catch (error: any) {
     console.error("Search proxy error:", error);
+    
+    // Record error in span
+    span.recordException(error);
+    span.setStatus({ code: 2, message: error.message || "Search failed" }); // ERROR
+    span.end();
 
     // Provide more detailed error messages
     let errorMessage = "Search failed";
     if (error.code === "ECONNREFUSED") {
-      errorMessage = `Cannot connect to Python API at ${pythonApiUrl}. Make sure the Python API is running.`;
+      errorMessage = `Cannot connect to Python API at ${searchApiUrl}. Make sure the Python API is running.`;
     } else if (error.code === "ETIMEDOUT") {
       errorMessage = `Connection to Python API timed out. The API may be overloaded or not responding.`;
     } else if (error.message) {
@@ -90,7 +132,7 @@ export default async function handler(
     return res.status(500).json({
       error: errorMessage,
       details: error.code || "Unknown error",
-      pythonApiUrl: pythonApiUrl,
+      pythonApiUrl: searchApiUrl,
     });
   }
 }

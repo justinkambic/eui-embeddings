@@ -78,6 +78,27 @@ Variables are organized by service with prefixes:
   - Default: `10`
   - Used for: Rate limiting middleware (currently not used, reserved for future use)
 
+- `OTEL_SERVICE_NAME` - OpenTelemetry service name
+  - Default: `eui-python-api`
+  - Used for: Identifying the service in observability tools
+
+- `OTEL_SERVICE_VERSION` - Service version for OpenTelemetry
+  - Default: `unknown`
+  - Used for: Version tracking in observability tools
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT` - OTLP endpoint URL for OpenTelemetry export
+  - Default: `https://ff29e674b8bb4b06b3e71aaacf84879f.ingest.us-central1.gcp.elastic.cloud:443`
+  - Used for: Exporting traces and metrics to Elastic Observability
+
+- `OTEL_EXPORTER_OTLP_HEADERS` - OTLP export headers (API key authentication)
+  - Default: `Authorization=ApiKey ZjlhVnRwb0JITGJzUkpwVXhNR0w6S1htMDVsWHJPbW1yczFMOEo0QTFxdw==`
+  - Used for: Authenticating OTLP export requests
+
+- `OTEL_RESOURCE_ATTRIBUTES` - Additional resource attributes for OpenTelemetry
+  - Default: `deployment.environment=production`
+  - Format: `key1=value1,key2=value2`
+  - Used for: Adding custom attributes to all spans/metrics
+
 ## Next.js Frontend
 
 ### Required Variables
@@ -114,6 +135,36 @@ Variables are organized by service with prefixes:
 - `PORT` - Port to run Next.js server on
   - Default: `3000`
   - Used for: Server port configuration
+
+- `NEXT_PUBLIC_OTEL_SERVICE_NAME` - OpenTelemetry service name for frontend
+  - Default: `eui-frontend`
+  - Used for: Identifying the service in observability tools
+  - Note: Must be prefixed with `NEXT_PUBLIC_` to be available in browser
+
+- `NEXT_PUBLIC_OTEL_SERVICE_VERSION` - Service version for OpenTelemetry
+  - Default: `unknown`
+  - Used for: Version tracking in observability tools
+  - Note: Must be prefixed with `NEXT_PUBLIC_` to be available in browser
+
+- `NEXT_PUBLIC_DEPLOYMENT_ENVIRONMENT` - Deployment environment for OpenTelemetry
+  - Default: `production`
+  - Used for: Environment identification in observability tools
+  - Note: Must be prefixed with `NEXT_PUBLIC_` to be available in browser
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT` - OTLP endpoint URL for OpenTelemetry export
+  - Default: `https://ff29e674b8bb4b06b3e71aaacf84879f.ingest.us-central1.gcp.elastic.cloud:443`
+  - Used for: Server-side OpenTelemetry trace/metric export
+  - Note: Server-side only (not prefixed with `NEXT_PUBLIC_`)
+
+- `OTEL_EXPORTER_OTLP_HEADERS` - OTLP export headers (API key authentication)
+  - Default: `Authorization=ApiKey ZjlhVnRwb0JITGJzUkpwVXhNR0w6S1htMDVsWHJPbW1yczFMOEo0QTFxdw==`
+  - Used for: Authenticating OTLP export requests
+  - Note: Server-side only (not prefixed with `NEXT_PUBLIC_`)
+
+- `NEXT_PUBLIC_ELASTIC_APM_SERVER_URL` - Elastic APM RUM server URL
+  - Default: Uses `NEXT_PUBLIC_OTEL_EXPORTER_OTLP_ENDPOINT` or OTLP endpoint
+  - Used for: Browser-side Real User Monitoring (RUM) data collection
+  - Note: Must be prefixed with `NEXT_PUBLIC_` to be available in browser
 
 ## Token Renderer Service (`token_renderer/server.js`)
 

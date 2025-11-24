@@ -5,6 +5,79 @@ All notable changes to the EUI Icon Embeddings project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2025-11-12] - Phase 2: Next.js Frontend OpenTelemetry Observability
+
+### Added
+- **Next.js Instrumentation Hook** (`frontend/instrumentation.ts`):
+  - Server-side OpenTelemetry SDK initialization using Next.js instrumentation hook
+  - OTLP HTTP exporters for traces and metrics
+  - HTTP and Fetch instrumentation for automatic tracing
+  - Resource attributes: `service.name="eui-frontend"`, `service.version`, `deployment.environment`
+  - Graceful shutdown handling
+  - Startup logging for visibility
+- **Elastic APM RUM Agent** (`frontend/lib/rum.ts`):
+  - Browser-side Real User Monitoring (RUM) initialization
+  - Tracks page loads, user interactions, JavaScript errors, and performance metrics
+  - Configures distributed tracing origins for API correlation
+  - Helper functions for custom context, user tracking, and error capture
+  - Transaction sampling configuration
+- **RUM Integration** (`frontend/pages/_app.tsx`):
+  - Client-side RUM agent initialization using React `useEffect` hook
+  - Browser-only execution to avoid SSR issues
+- **Manual API Route Instrumentation**:
+  - **`frontend/pages/api/search.ts`**: Added OpenTelemetry spans for search operations
+    - Tracks search type, icon type filters, fields, result counts
+    - Records HTTP status codes and errors
+    - Attributes: `search.type`, `search.result_count`, `search.total_results`
+  - **`frontend/pages/api/saveIcon.ts`**: Added OpenTelemetry spans for save operations
+    - Tracks icon name, description length, Elasticsearch operations
+    - Records embedding fetch failures and operation types
+    - Attributes: `icon.name`, `elasticsearch.operation`
+- **OpenTelemetry Node.js Dependencies** (`frontend/package.json`):
+  - `@opentelemetry/api@^1.7.0` - Core OpenTelemetry API
+  - `@opentelemetry/sdk-node@^0.45.0` - Node.js SDK
+  - `@opentelemetry/instrumentation@^0.45.0` - Instrumentation framework
+  - `@opentelemetry/instrumentation-http@^0.45.0` - HTTP instrumentation
+  - `@opentelemetry/instrumentation-fetch@^0.45.0` - Fetch instrumentation
+  - `@opentelemetry/exporter-trace-otlp-http@^0.45.0` - OTLP trace exporter
+  - `@opentelemetry/exporter-metrics-otlp-http@^0.45.0` - OTLP metrics exporter
+  - `@opentelemetry/resources@^1.17.0` - Resource management
+  - `@opentelemetry/semantic-conventions@^1.17.0` - Semantic conventions
+  - `@opentelemetry/sdk-metrics@^1.17.0` - Metrics SDK
+- **Elastic RUM Agent** (`frontend/package.json`):
+  - `@elastic/apm-rum@^5.17.0` - Elastic APM Real User Monitoring agent
+- **Next.js Configuration** (`frontend/next.config.js`):
+  - Enabled `experimental.instrumentationHook: true` to activate instrumentation hook
+- **Environment Variables Documentation** (`docs/ENVIRONMENT_VARIABLES.md`):
+  - Added OpenTelemetry variables for Next.js frontend:
+    - `NEXT_PUBLIC_OTEL_SERVICE_NAME` - Service name (browser-accessible)
+    - `NEXT_PUBLIC_OTEL_SERVICE_VERSION` - Service version (browser-accessible)
+    - `NEXT_PUBLIC_DEPLOYMENT_ENVIRONMENT` - Deployment environment (browser-accessible)
+    - `OTEL_EXPORTER_OTLP_ENDPOINT` - OTLP endpoint (server-side only)
+    - `OTEL_EXPORTER_OTLP_HEADERS` - OTLP headers (server-side only)
+    - `NEXT_PUBLIC_ELASTIC_APM_SERVER_URL` - RUM server URL (browser-accessible)
+  - Added OpenTelemetry variables for Python API section
+  - Documented `NEXT_PUBLIC_*` prefix requirements for browser-accessible variables
+
+### Changed
+- **Next.js Frontend** (`frontend/pages/_app.tsx`):
+  - Added RUM agent initialization on client-side mount
+  - Imported and called `initRum()` from `lib/rum.ts`
+- **API Routes**:
+  - `frontend/pages/api/search.ts`: Added manual span creation and attribute tracking
+  - `frontend/pages/api/saveIcon.ts`: Added manual span creation and attribute tracking
+- **Documentation**:
+  - Updated `docs/OTEL_PLAN.md` to reflect correct Elastic RUM version (`^5.17.0`)
+
+### Fixed
+- **Dependencies**:
+  - Corrected `@elastic/apm-rum` version from `^6.0.0` (non-existent) to `^5.17.0` (latest available)
+
+### Security
+- API key authentication for OTLP export to Elastic Observability
+- Secure HTTPS connection to observability endpoint
+- Browser-side RUM data collection with configurable transaction sampling
+
 ## [2025-11-12] - Phase 1: OpenTelemetry Observability
 
 ### Added

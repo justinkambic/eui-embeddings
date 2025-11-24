@@ -70,7 +70,7 @@ Implement comprehensive observability using OpenTelemetry SDKs with collectors, 
 **2.2 Add Elastic RUM Agent**
 
 - Add to `frontend/package.json`:
-- `@elastic/apm-rum@^6.0.0`
+- `@elastic/apm-rum@^5.17.0`
 
 **2.3 Create OpenTelemetry instrumentation file**
 
