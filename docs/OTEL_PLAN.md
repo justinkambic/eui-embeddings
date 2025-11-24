@@ -130,28 +130,35 @@ Implement comprehensive observability using OpenTelemetry SDKs with collectors, 
 - Add OTEL environment variables to Cloud Run deployment
 - Set service version from git or build metadata
 
-### Phase 4: Documentation and Testing
+### Phase 4: Documentation and Testing ✅ COMPLETE
 
-**4.1 Create observability documentation**
+**4.1 Create observability documentation** ✅
 
-- Create `docs/OBSERVABILITY.md`:
-- Explain OpenTelemetry setup
-- Document resource attributes
-- Explain how to view traces/metrics in Elastic Observability
-- Document RUM data collection
+- Created `docs/OBSERVABILITY.md`:
+- Explains OpenTelemetry setup for both Python API and Next.js frontend
+- Documents resource attributes (service.name, service.version, deployment.environment)
+- Explains how to view traces/metrics in Elastic Observability
+- Documents RUM data collection and viewing
+- Includes troubleshooting guide
+- Includes configuration examples for local development and production
 
-**4.2 Update environment variables documentation**
+**4.2 Update environment variables documentation** ✅
 
-- Update `docs/ENVIRONMENT_VARIABLES.md`:
-- Add OpenTelemetry configuration variables
-- Add RUM configuration variables
+- Updated `docs/ENVIRONMENT_VARIABLES.md`:
+- Added OpenTelemetry configuration variables for Python API
+- Added OpenTelemetry configuration variables for Next.js frontend (server-side and browser-accessible)
+- Added RUM configuration variables
+- Documented NEXT_PUBLIC_* prefix requirements
 
-**4.3 Add verification script**
+**4.3 Add verification script** ✅
 
-- Create `scripts/verify-observability.sh`:
-- Check OpenTelemetry dependencies are installed
-- Verify environment variables are set
-- Test OTLP export connectivity (optional)
+- Created `scripts/verify-observability.sh`:
+- Checks Python OpenTelemetry dependencies are installed
+- Checks Node.js OpenTelemetry dependencies are installed
+- Verifies environment variables are set (with defaults)
+- Checks for instrumentation files (otel_config.py, instrumentation.ts, rum.ts)
+- Tests OTLP export connectivity (optional, can be disabled)
+- Provides summary with pass/fail/warning counts
 
 ## Key Files to Modify
 

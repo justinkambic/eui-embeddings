@@ -5,6 +5,39 @@ All notable changes to the EUI Icon Embeddings project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2025-11-12] - Phase 4: OpenTelemetry Documentation and Testing
+
+### Added
+- **Observability Documentation** (`docs/OBSERVABILITY.md`):
+  - Comprehensive guide for OpenTelemetry observability setup
+  - Architecture overview for Python API and Next.js frontend instrumentation
+  - Resource attributes documentation (`service.name`, `service.version`, `deployment.environment`)
+  - OTLP configuration details (endpoint, authentication, protocol)
+  - Guide for viewing traces, metrics, and RUM data in Elastic Observability
+  - Expected trace structures for both Python API and Frontend services
+  - Configuration examples for local development and production deployment
+  - Verification steps for both services
+  - Troubleshooting guide for common issues
+  - Best practices for performance, security, and monitoring
+- **Observability Verification Script** (`scripts/verify-observability.sh`):
+  - Checks Python OpenTelemetry dependencies installation
+  - Checks Node.js OpenTelemetry dependencies installation
+  - Verifies Python API environment variables (with defaults)
+  - Verifies Frontend environment variables (server-side and browser-accessible)
+  - Checks for required instrumentation files (`otel_config.py`, `instrumentation.ts`, `rum.ts`)
+  - Optional OTLP endpoint connectivity test (can be disabled)
+  - Provides summary with pass/fail/warning counts
+  - Includes next steps guidance after verification
+
+### Changed
+- **OpenTelemetry Plan** (`docs/OTEL_PLAN.md`):
+  - Marked Phase 4 as complete with checkmarks
+  - Updated with completion status for all Phase 4 tasks
+
+### Documentation
+- Environment variables documentation (`docs/ENVIRONMENT_VARIABLES.md`) already includes OpenTelemetry variables (added in Phase 2)
+- All OpenTelemetry configuration is now fully documented and verified
+
 ## [2025-11-12] - Phase 3: Docker Configuration for OpenTelemetry
 
 ### Added
