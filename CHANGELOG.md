@@ -5,6 +5,79 @@ All notable changes to the EUI Icon Embeddings project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2025-11-12] - Phase 1: OpenTelemetry Observability
+
+### Added
+- **OpenTelemetry Configuration Module** (`otel_config.py`):
+  - Centralized OpenTelemetry SDK initialization and configuration
+  - OTLP HTTP exporter configured for Elastic Observability cluster
+  - Resource attributes: `service.name`, `service.version`, `deployment.environment`
+  - Auto-instrumentation for FastAPI, requests, and Elasticsearch
+  - Batch span processor for efficient trace export
+  - Periodic metric reader (exports every 60 seconds)
+  - Startup logging to confirm initialization
+- **Python API Instrumentation** (`embed.py`):
+  - OpenTelemetry initialization before FastAPI app creation
+  - FastAPI auto-instrumentation for request/response tracing
+  - Manual instrumentation for key operations:
+    - Model loading: tracks initialization time and embedding dimensions
+    - `/embed` endpoint: tracks text embedding generation and ELSER inference
+    - `/embed-image` endpoint: tracks image processing and embedding generation
+    - `/embed-svg` endpoint: tracks SVG conversion and embedding generation
+    - `/search` endpoint: tracks search type, embedding generation, Elasticsearch queries, and result counts
+  - Span attributes for performance metrics (latency, dimensions, result counts)
+  - Exception recording and error status tracking
+  - Trace context propagation for distributed tracing
+- **OpenTelemetry Dependencies** (`requirements.txt`):
+  - `opentelemetry-api>=1.21.0` - Core OpenTelemetry API
+  - `opentelemetry-sdk>=1.21.0` - OpenTelemetry SDK implementation
+  - `opentelemetry-instrumentation-fastapi>=0.42b0` - FastAPI auto-instrumentation
+  - `opentelemetry-instrumentation-requests>=0.42b0` - HTTP requests instrumentation
+  - `opentelemetry-instrumentation-elasticsearch>=0.42b0` - Elasticsearch client instrumentation
+  - `opentelemetry-exporter-otlp-proto-http>=1.21.0` - OTLP HTTP exporter
+- **Verification Tools**:
+  - `scripts/verify-otel.py` - Comprehensive verification script for OpenTelemetry setup
+    - Checks environment variables
+    - Tests OTLP endpoint connectivity
+    - Verifies SDK initialization
+    - Creates test spans to verify export functionality
+  - `scripts/test-otel-api.sh` - API test script to generate traces
+    - Tests health endpoint
+    - Tests `/embed` endpoint
+    - Tests `/search` endpoint
+- **Documentation**:
+  - `docs/OTEL_VERIFICATION.md` - Complete verification guide
+    - Quick verification steps
+    - Elastic Observability UI instructions
+    - Troubleshooting guide
+    - Expected trace structure
+    - Manual testing instructions
+  - `docs/OTEL_PLAN.md` - Updated with Phase 1 completion status
+
+### Changed
+- **Python API** (`embed.py`):
+  - Added OpenTelemetry imports and initialization at module level
+  - Instrumented FastAPI app with `FastAPIInstrumentor`
+  - Added manual spans to all embedding and search endpoints
+  - Added span attributes for detailed observability (embedding dimensions, query types, result counts, etc.)
+  - Enhanced error handling with exception recording in spans
+- **OpenTelemetry Configuration** (`otel_config.py`):
+  - Configured OTLP endpoint: `https://ff29e674b8bb4b06b3e71aaacf84879f.ingest.us-central1.gcp.elastic.cloud:443`
+  - API key authentication via `Authorization` header
+  - Resource attributes parsed from environment variables
+  - Startup logging for visibility
+
+### Fixed
+- **Dependencies**:
+  - Removed non-existent `opentelemetry-instrumentation-uvicorn` package
+  - FastAPI instrumentation automatically covers uvicorn ASGI server
+  - Updated `otel_config.py` to remove uvicorn-specific imports
+
+### Security
+- API key authentication for OTLP export to Elastic Observability
+- Secure HTTPS connection to observability endpoint
+- Resource attributes configured for proper service identification
+
 ## [2025-11-12] - Phase 5: Rate Limiting
 
 ### Added
