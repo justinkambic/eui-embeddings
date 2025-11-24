@@ -29,6 +29,7 @@ RUN addgroup -g 1001 -S nodejs && \
 
 # Copy necessary files from builder
 # Next.js standalone output includes server.js and all dependencies
+# Note: instrumentation.ts is automatically included in standalone build if present
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
@@ -46,5 +47,18 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # PORT env var is used by Cloud Run, fallback to 3000
 ENV PORT=3000
 ENV NODE_ENV=production
+
+# OpenTelemetry configuration (can be overridden at runtime)
+# Server-side variables (not prefixed with NEXT_PUBLIC_)
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=https://ff29e674b8bb4b06b3e71aaacf84879f.ingest.us-central1.gcp.elastic.cloud:443
+ENV OTEL_EXPORTER_OTLP_HEADERS=Authorization=ApiKey ZjlhVnRwb0JITGJzUkpwVXhNR0w6S1htMDVsWHJPbW1yczFMOEo0QTFxdw==
+ENV OTEL_SERVICE_NAME=eui-frontend
+ENV OTEL_SERVICE_VERSION=unknown
+# Browser-accessible variables (prefixed with NEXT_PUBLIC_)
+ENV NEXT_PUBLIC_OTEL_SERVICE_NAME=eui-frontend
+ENV NEXT_PUBLIC_OTEL_SERVICE_VERSION=unknown
+ENV NEXT_PUBLIC_DEPLOYMENT_ENVIRONMENT=production
+ENV NEXT_PUBLIC_ELASTIC_APM_SERVER_URL=https://ff29e674b8bb4b06b3e71aaacf84879f.ingest.us-central1.gcp.elastic.cloud:443
+
 CMD ["node", "server.js"]
 

@@ -105,6 +105,20 @@ deploy_python_api() {
     [ -n "${RATE_LIMIT_PER_MINUTE:-}" ] && ENV_VARS="$ENV_VARS,RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}"
     [ -n "${RATE_LIMIT_PER_HOUR:-}" ] && ENV_VARS="$ENV_VARS,RATE_LIMIT_PER_HOUR=${RATE_LIMIT_PER_HOUR:-1000}"
     
+    # Add OpenTelemetry environment variables
+    # Get service version from git (short commit hash) or use provided/default
+    SERVICE_VERSION="${OTEL_SERVICE_VERSION:-}"
+    if [ -z "$SERVICE_VERSION" ] && command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+        SERVICE_VERSION=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    fi
+    SERVICE_VERSION="${SERVICE_VERSION:-unknown}"
+    
+    ENV_VARS="$ENV_VARS,OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-eui-python-api}"
+    ENV_VARS="$ENV_VARS,OTEL_SERVICE_VERSION=$SERVICE_VERSION"
+    ENV_VARS="$ENV_VARS,OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-https://ff29e674b8bb4b06b3e71aaacf84879f.ingest.us-central1.gcp.elastic.cloud:443}"
+    ENV_VARS="$ENV_VARS,OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-Authorization=ApiKey ZjlhVnRwb0JITGJzUkpwVXhNR0w6S1htMDVsWHJPbW1yczFMOEo0QTFxdw==}"
+    ENV_VARS="$ENV_VARS,OTEL_RESOURCE_ATTRIBUTES=${OTEL_RESOURCE_ATTRIBUTES:-deployment.environment=production}"
+    
     print_info "Deploying Python API to Cloud Run..."
     
     # Build Docker image first (required for system dependencies like cairo)
@@ -189,6 +203,36 @@ deploy_frontend() {
     [ -n "${FRONTEND_API_KEY:-}" ] && ENV_VARS="$ENV_VARS,FRONTEND_API_KEY=$FRONTEND_API_KEY"
     [ -n "${ELASTICSEARCH_ENDPOINT:-}" ] && ENV_VARS="$ENV_VARS,ELASTICSEARCH_ENDPOINT=$ELASTICSEARCH_ENDPOINT"
     [ -n "${ELASTICSEARCH_API_KEY:-}" ] && ENV_VARS="$ENV_VARS,ELASTICSEARCH_API_KEY=$ELASTICSEARCH_API_KEY"
+    
+    # Add OpenTelemetry environment variables
+    # Get service version from git (short commit hash) or use provided/default
+    SERVICE_VERSION="${OTEL_SERVICE_VERSION:-}"
+    if [ -z "$SERVICE_VERSION" ] && command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+        SERVICE_VERSION=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    fi
+    SERVICE_VERSION="${SERVICE_VERSION:-unknown}"
+    
+    # Server-side OpenTelemetry variables
+    ENV_VARS="$ENV_VARS,OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-eui-frontend}"
+    ENV_VARS="$ENV_VARS,OTEL_SERVICE_VERSION=$SERVICE_VERSION"
+    ENV_VARS="$ENV_VARS,OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-https://ff29e674b8bb4b06b3e71aaacf84879f.ingest.us-central1.gcp.elastic.cloud:443}"
+    ENV_VARS="$ENV_VARS,OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-Authorization=ApiKey ZjlhVnRwb0JITGJzUkpwVXhNR0w6S1htMDVsWHJPbW1yczFMOEo0QTFxdw==}"
+    
+    # Browser-accessible OpenTelemetry variables (NEXT_PUBLIC_ prefix)
+    ENV_VARS="$ENV_VARS,NEXT_PUBLIC_OTEL_SERVICE_NAME=${NEXT_PUBLIC_OTEL_SERVICE_NAME:-${OTEL_SERVICE_NAME:-eui-frontend}}"
+    ENV_VARS="$ENV_VARS,NEXT_PUBLIC_OTEL_SERVICE_VERSION=$SERVICE_VERSION"
+    # Extract deployment.environment from OTEL_RESOURCE_ATTRIBUTES if needed, or use default
+    DEPLOYMENT_ENV="${NEXT_PUBLIC_DEPLOYMENT_ENVIRONMENT:-}"
+    if [ -z "$DEPLOYMENT_ENV" ]; then
+        OTEL_RESOURCE_ATTRS="${OTEL_RESOURCE_ATTRIBUTES:-deployment.environment=production}"
+        if [[ "$OTEL_RESOURCE_ATTRS" == *"deployment.environment="* ]]; then
+            DEPLOYMENT_ENV=$(echo "$OTEL_RESOURCE_ATTRS" | sed 's/.*deployment.environment=\([^,]*\).*/\1/')
+        else
+            DEPLOYMENT_ENV="production"
+        fi
+    fi
+    ENV_VARS="$ENV_VARS,NEXT_PUBLIC_DEPLOYMENT_ENVIRONMENT=$DEPLOYMENT_ENV"
+    ENV_VARS="$ENV_VARS,NEXT_PUBLIC_ELASTIC_APM_SERVER_URL=${NEXT_PUBLIC_ELASTIC_APM_SERVER_URL:-${OTEL_EXPORTER_OTLP_ENDPOINT:-https://ff29e674b8bb4b06b3e71aaacf84879f.ingest.us-central1.gcp.elastic.cloud:443}}"
     
     print_info "Deploying Frontend to Cloud Run..."
     

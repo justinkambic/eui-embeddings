@@ -32,6 +32,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 ENV TRANSFORMERS_CACHE=/app/.cache/huggingface
 ENV HF_HOME=/app/.cache/huggingface
 ENV HF_DATASETS_CACHE=/app/.cache/huggingface
+
+# OpenTelemetry configuration (can be overridden at runtime)
+ENV OTEL_SERVICE_NAME=eui-python-api
+ENV OTEL_SERVICE_VERSION=unknown
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=https://ff29e674b8bb4b06b3e71aaacf84879f.ingest.us-central1.gcp.elastic.cloud:443
+ENV OTEL_EXPORTER_OTLP_HEADERS=Authorization=ApiKey ZjlhVnRwb0JITGJzUkpwVXhNR0w6S1htMDVsWHJPbW1yczFMOEo0QTFxdw==
+ENV OTEL_RESOURCE_ATTRIBUTES=deployment.environment=production
 # Pre-download models as root (before switching to appuser)
 RUN mkdir -p /app/.cache/huggingface && \
     TRANSFORMERS_CACHE=/app/.cache/huggingface \

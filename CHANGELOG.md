@@ -5,6 +5,40 @@ All notable changes to the EUI Icon Embeddings project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2025-11-12] - Phase 3: Docker Configuration for OpenTelemetry
+
+### Added
+- **OpenTelemetry Environment Variables in Dockerfiles**:
+  - **`Dockerfile.python`**: Added default OpenTelemetry configuration environment variables
+    - `OTEL_SERVICE_NAME=eui-python-api`
+    - `OTEL_SERVICE_VERSION=unknown` (can be overridden at runtime)
+    - `OTEL_EXPORTER_OTLP_ENDPOINT` (Elastic Observability endpoint)
+    - `OTEL_EXPORTER_OTLP_HEADERS` (API key authentication)
+    - `OTEL_RESOURCE_ATTRIBUTES=deployment.environment=production`
+  - **`Dockerfile.frontend`**: Added OpenTelemetry configuration for both server-side and browser-accessible variables
+    - Server-side: `OTEL_SERVICE_NAME`, `OTEL_SERVICE_VERSION`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`
+    - Browser-accessible (`NEXT_PUBLIC_*`): `NEXT_PUBLIC_OTEL_SERVICE_NAME`, `NEXT_PUBLIC_OTEL_SERVICE_VERSION`, `NEXT_PUBLIC_DEPLOYMENT_ENVIRONMENT`, `NEXT_PUBLIC_ELASTIC_APM_SERVER_URL`
+- **Git-based Version Detection** (`scripts/deploy-basic.sh`):
+  - Automatically detects git commit hash (short format) for `OTEL_SERVICE_VERSION` during deployment
+  - Falls back to "unknown" if git is unavailable or not in a git repository
+  - Allows manual override via `OTEL_SERVICE_VERSION` environment variable
+
+### Changed
+- **Deployment Script** (`scripts/deploy-basic.sh`):
+  - **Python API Deployment**: Added OpenTelemetry environment variables to Cloud Run deployment
+    - Automatically sets service version from git commit hash
+    - All OpenTelemetry variables can be overridden via environment variables
+  - **Frontend Deployment**: Added OpenTelemetry environment variables (both server-side and browser-accessible)
+    - Automatically sets service version from git commit hash
+    - Parses `deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES` if `NEXT_PUBLIC_DEPLOYMENT_ENVIRONMENT` is not explicitly set
+    - Sets RUM server URL from OTLP endpoint if not explicitly provided
+- **Dockerfile.frontend**:
+  - Added comment noting that `instrumentation.ts` is automatically included in Next.js standalone builds
+
+### Security
+- OpenTelemetry API key authentication configured in Docker images (can be overridden at runtime)
+- Secure HTTPS connection to Elastic Observability endpoint configured by default
+
 ## [2025-11-12] - Phase 2: Next.js Frontend OpenTelemetry Observability
 
 ### Added
