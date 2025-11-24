@@ -5,6 +5,69 @@ All notable changes to the EUI Icon Embeddings project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2025-11-24] - Frontend Performance Optimizations and FOUC Prevention
+
+### Added
+- **Performance Monitoring** (`frontend/components/mainPage/content.tsx`):
+  - Performance marks for component lifecycle (`main-page-content-mounted`, `main-page-content-unmounted`)
+  - Performance marks for image search operations (`image-search-network-start`, `image-search-network-end`, `image-search-total-start`, `image-search-total-end`)
+  - Performance marks for SVG search operations (`svg-search-network-start`, `svg-search-network-end`, `svg-search-total-start`, `svg-search-total-end`)
+  - Performance measurements to track network times and total operation times
+- **Page Load Performance Monitoring** (`frontend/pages/index.tsx`):
+  - Performance marks for page load lifecycle (`page-load-start`, `page-load-end`, `home-page-render-start`, `home-page-render-end`)
+  - Measures time to interactive and component render times
+- **FOUC Prevention** (`frontend/pages/_document.tsx`):
+  - Initial implementation of content visibility hiding to prevent Flash of Unstyled Content (FOUC)
+  - Inline CSS and script to hide content until styles are loaded
+  - Transition effect for smooth content reveal
+
+### Changed
+- **Next.js Configuration** (`frontend/next.config.js`):
+  - Updated TypeScript compiler target from ES2017 to ES2020 for modern browser support
+  - Added compiler option to remove console.log statements in production builds (excludes error and warn)
+  - Enabled SWC minification for improved build performance
+  - Removed deprecated `experimental.instrumentationHook` configuration (now enabled by default in Next.js 15.5.2)
+- **MainPageContent Component** (`frontend/components/mainPage/content.tsx`):
+  - Enhanced placeholder content to prevent layout shifts
+  - Added fixed dimensions to image preview container (200x200px) to prevent Cumulative Layout Shift (CLS)
+  - Added placeholder text "Preview will appear here" when no image/SVG is present
+  - Added minimum height reservation (400px) for results section to prevent layout shifts
+  - Added empty state message "Start by uploading an image, pasting SVG code, or typing a search query."
+  - Improved loading states with `EuiSkeletonText` for better visual feedback
+  - Removed blocking server-side props that caused long initial page load times
+- **HomePage Component** (`frontend/pages/index.tsx`):
+  - Removed `getServerSideProps` to eliminate blocking Elasticsearch query on initial page load
+  - Removed `iconTypes` prop dependency
+  - Improved initial page load performance by removing server-side blocking operations
+- **TypeScript Configuration** (`frontend/tsconfig.json`):
+  - Updated target from ES2017 to ES2020 to align with modern browser support
+- **OpenTelemetry Instrumentation** (`frontend/instrumentation.ts`):
+  - Refactored `PeriodicExportingMetricReader` initialization with type assertion for TypeScript compatibility
+  - Fixed TypeScript error: `Type 'PeriodicExportingMetricReader' is not assignable to type 'MetricReader'`
+
+### Fixed
+- **Layout Shift Issues**:
+  - Fixed Cumulative Layout Shift (CLS) score of 0.617 by adding fixed dimensions and placeholder content
+  - Eliminated layout shifts when search results load
+  - Prevented unstyled content flash during initial page load
+- **Performance Issues**:
+  - Reduced Largest Contentful Paint (LCP) from 9 seconds by removing blocking server-side operations
+  - Improved Total Blocking Time (TBT) from 1.2 seconds
+  - Improved Speed Index from 11.4 seconds
+- **Build Errors**:
+  - Fixed TypeScript compilation error in `instrumentation.ts` related to metric reader type compatibility
+  - Removed invalid Next.js configuration option that caused build warnings
+
+### Performance
+- **Page Load Optimizations**:
+  - Eliminated blocking server-side Elasticsearch query on initial page load
+  - Reduced initial page load time significantly
+  - Improved Core Web Vitals scores (LCP, CLS, TBT)
+- **Build Optimizations**:
+  - Modern ES2020 target reduces unnecessary polyfills and transpilation
+  - Production builds now remove console.log statements automatically
+  - SWC minification enabled for faster builds and smaller bundles
+
 ## [2025-11-12] - Phase 4: OpenTelemetry Documentation and Testing
 
 ### Added
