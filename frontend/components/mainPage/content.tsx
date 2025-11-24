@@ -457,17 +457,19 @@ export function MainPageContent() {
               alignItems: "center",
               justifyContent: "center",
               minHeight: 200,
+              border: "1px solid #d3dae6",
+              borderRadius: "4px",
+              backgroundColor: "#fafbfc",
             }}
           >
-            {searchImageDataUrl && (
+            {searchImageDataUrl ? (
               <EuiImage
                 src={searchImageDataUrl}
                 alt="Search image"
                 size="m"
                 hasShadow
               />
-            )}
-            {svgCode.trim() && !searchImageDataUrl && (
+            ) : svgCode.trim() ? (
               <div
                 style={{
                   width: "100%",
@@ -475,23 +477,25 @@ export function MainPageContent() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  border: "1px solid #d3dae6",
-                  borderRadius: "4px",
                   padding: "8px",
                   backgroundColor: "#fff",
                 }}
                 dangerouslySetInnerHTML={{ __html: svgCode }}
               />
+            ) : (
+              <EuiText size="s" color="subdued" textAlign="center" style={{ padding: "16px" }}>
+                Preview will appear here
+              </EuiText>
             )}
           </div>
         </EuiFlexItem>
       </EuiFlexGroup>
 
       {/* Results section with fixed height to prevent layout shift */}
-      <div style={{ minHeight: searchResults || isSearching ? '400px' : '0px' }}>
-        {isSearching && (
+      {/* Always reserve space to prevent layout shift */}
+      <div style={{ minHeight: '400px', marginTop: '24px' }}>
+        {isSearching ? (
           <>
-            <EuiSpacer size="m" />
             <EuiFlexGroup direction="column" alignItems="center">
               <EuiLoadingSpinner size="l" />
               <EuiSpacer size="s" />
@@ -505,11 +509,8 @@ export function MainPageContent() {
               </div>
             </EuiFlexGroup>
           </>
-        )}
-
-        {searchResults && !isSearching && (
+        ) : searchResults ? (
           <>
-            <EuiSpacer size="m" />
             <EuiText>
               <h3>Search Results ({searchResults.length})</h3>
             </EuiText>
@@ -534,6 +535,22 @@ export function MainPageContent() {
               </EuiText>
             )}
           </>
+        ) : (
+          // Empty state placeholder to maintain space
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            height: '100%',
+            minHeight: '300px',
+            border: '1px dashed #d3dae6',
+            borderRadius: '4px',
+            backgroundColor: '#fafbfc'
+          }}>
+            <EuiText color="subdued" textAlign="center">
+              <p>Upload an image, paste SVG code, or use the search fields above to find icons.</p>
+            </EuiText>
+          </div>
         )}
       </div>
     </>

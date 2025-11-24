@@ -14,7 +14,17 @@ const nextConfig = {
   
   // Enable standalone output for Docker
   output: 'standalone',
+  
+  // Target modern browsers to reduce polyfills and transpilation
+  // This tells Next.js to only transpile for browsers that support ES2020+
+  compiler: {
+    // Remove console.log in production
+    removeConsole: process.env.NODE_ENV === 'production' ? {
+      exclude: ['error', 'warn'],
+    } : false,
+  },
+  
+  // Configure SWC to target modern browsers
+  swcMinify: true,
 };
-
-module.exports = nextConfig;
 
