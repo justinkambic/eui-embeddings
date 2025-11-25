@@ -193,6 +193,16 @@ test-results/
 htmlcov/
 data/
 
+# Test outputs and debug files
+test_output/
+data/rendered_images/
+*.png
+*.jpg
+*.jpeg
+!frontend/public/*.png
+!frontend/public/*.jpg
+!frontend/public/*.jpeg
+
 # Hugging Face cache (optional - uncomment if you don't want to track)
 # .huggingface/
 # ~/.cache/huggingface/

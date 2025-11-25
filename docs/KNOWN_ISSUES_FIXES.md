@@ -243,7 +243,7 @@ curl -X POST http://localhost:8000/embed-image \
 ### Test Elasticsearch
 ```bash
 # Run validation test:
-python test_elasticsearch_setup.py
+python tests/integration/test_elasticsearch_setup.py
 
 # Check index exists:
 curl -X GET "your-es-endpoint/icons" \

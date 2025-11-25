@@ -160,7 +160,7 @@ Extract, normalize, and index SVG embeddings for multiple icons:
 Run the Elasticsearch validation test:
 
 ```bash
-python test_elasticsearch_setup.py
+python tests/integration/test_elasticsearch_setup.py
 ```
 
 This validates:
@@ -180,8 +180,8 @@ This validates:
 
 ## Documentation
 
-- **[PROJECT_PLAN.md](docs/PROJECT_PLAN.md)** - High-level project plan and architecture
-- **[IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)** - Detailed implementation plan and task breakdown
+- **[Documentation Index](docs/README.md)** - Complete documentation guide
+- **[Deployment Guide](docs/deployment.md)** - Cloud Run deployment guide
 
 ## MCP Server
 
@@ -205,7 +205,7 @@ Set environment variables:
 - `search_by_svg` - Search using SVG code
 - `search_by_image` - Search using base64 image data
 
-See [docs/MCP_SERVER.md](docs/MCP_SERVER.md) for detailed documentation.
+See [docs/api/mcp-server.md](docs/api/mcp-server.md) for detailed documentation.
 
 ## File Structure
 
@@ -216,21 +216,31 @@ eui-embeddings/
 ├── image_processor.py          # Image normalization utilities
 ├── svg_processor.py            # SVG normalization utilities
 ├── docs/
-│   ├── PROJECT_PLAN.md         # High-level project plan
-│   ├── IMPLEMENTATION_PLAN.md  # Detailed implementation plan
-│   └── MCP_SERVER.md           # MCP server documentation
+│   ├── README.md               # Documentation index
+│   ├── deployment.md           # Deployment guide
+│   ├── setup.md                # Setup guide
+│   ├── observability.md        # Observability guide
+│   ├── troubleshooting.md      # Troubleshooting guide
+│   ├── api/                    # API documentation
+│   ├── infrastructure/         # Infrastructure guides
+│   └── archive/                # Archived documentation
+├── scripts/
+│   ├── deploy/                 # Deployment scripts
+│   ├── setup/                  # Setup scripts
+│   ├── verify/                 # Verification scripts
+│   ├── manage/                 # Management scripts
+│   ├── index/                  # Indexing scripts
+│   └── test/                   # Test scripts
+├── tests/
+│   ├── integration/           # Integration tests
+│   └── phase/                  # Phase-specific tests
 ├── utils/
 │   ├── es_index_setup.py       # Elasticsearch index setup
+│   ├── check_index.py          # Index diagnostic utility
+│   ├── diagnose_embeddings.py  # Embedding diagnostic utility
 │   └── icon_renderer.js        # Icon rendering utilities (Node.js)
-├── frontend/
-│   ├── pages/api/
-│   │   ├── search.ts           # Unified search API
-│   │   ├── batchIndexText.ts  # Batch text indexing
-│   │   ├── batchIndexImages.ts # Batch image indexing
-│   │   ├── batchIndexSVG.ts    # Batch SVG indexing
-│   │   └── saveIcon.ts         # Single icon indexing
-│   └── utils/
-│       └── icon_renderer.ts    # Icon rendering utilities (TypeScript)
+├── frontend/                   # Next.js frontend application
+├── token_renderer/             # Token renderer service
 └── requirements.txt            # Python dependencies
 ```
 

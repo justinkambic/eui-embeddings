@@ -126,7 +126,7 @@ Implement comprehensive observability using OpenTelemetry SDKs with collectors, 
 
 **3.3 Update deployment script**
 
-- Update `scripts/deploy-basic.sh`:
+- Update `scripts/deploy/deploy-basic.sh`:
 - Add OTEL environment variables to Cloud Run deployment
 - Set service version from git or build metadata
 
@@ -152,7 +152,7 @@ Implement comprehensive observability using OpenTelemetry SDKs with collectors, 
 
 **4.3 Add verification script** ✅
 
-- Created `scripts/verify-observability.sh`:
+- Created `scripts/verify/verify-observability.sh`:
 - Checks Python OpenTelemetry dependencies are installed
 - Checks Node.js OpenTelemetry dependencies are installed
 - Verifies environment variables are set (with defaults)
@@ -173,7 +173,7 @@ Implement comprehensive observability using OpenTelemetry SDKs with collectors, 
 - `frontend/pages/api/saveIcon.ts` - Add manual instrumentation
 - `Dockerfile.python` - Add OTEL env vars
 - `Dockerfile.frontend` - Add OTEL env vars
-- `scripts/deploy-basic.sh` - Add OTEL env vars to deployment
+- `scripts/deploy/deploy-basic.sh` - Add OTEL env vars to deployment
 - `docs/OBSERVABILITY.md` - New documentation file
 - `docs/ENVIRONMENT_VARIABLES.md` - Update with OTEL vars
 

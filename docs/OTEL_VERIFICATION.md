@@ -13,7 +13,7 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=https://ff29e674b8bb4b06b3e71aaacf84879f.inge
 export OTEL_EXPORTER_OTLP_HEADERS="Authorization=ApiKey ZjlhVnRwb0JITGJzUkpwVXhNR0w6S1htMDVsWHJPbW1yczFMOEo0QTFxdw=="
 
 # Run verification script
-python scripts/verify-otel.py
+python scripts/verify/verify-otel.py
 ```
 
 This script will:
@@ -31,7 +31,7 @@ python embed.py
 # In another terminal, run the API test script
 export FRONTEND_API_KEY="your-api-key"
 export EMBEDDING_SERVICE_URL="http://localhost:8000"
-./scripts/test-otel-api.sh
+./scripts/test/test-otel-api.sh
 ```
 
 This will make actual API calls that generate traces.
@@ -79,7 +79,7 @@ Navigate to **Metrics** to see:
 
 1. **Check OpenTelemetry initialization**:
    ```bash
-   python scripts/verify-otel.py
+   python scripts/verify/verify-otel.py
    ```
 
 2. **Check API logs**:

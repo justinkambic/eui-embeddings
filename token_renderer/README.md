@@ -99,7 +99,7 @@ Returns:
 
 ## Usage with Python Scripts
 
-The Python indexing script (`scripts/index_eui_icons.py`) will automatically use this service when token rendering is enabled. Make sure the service is running before starting the indexing process.
+The Python indexing script (`scripts/index/index_eui_icons.py`) will automatically use this service when token rendering is enabled. Make sure the service is running before starting the indexing process.
 
 ## Error Handling
 

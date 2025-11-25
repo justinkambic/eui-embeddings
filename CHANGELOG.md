@@ -5,6 +5,66 @@ All notable changes to the EUI Icon Embeddings project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2025-01-25] - Repository Streamlining and Organization
+
+### Summary
+Major repository cleanup and reorganization to improve maintainability and reduce clutter. Consolidated documentation, reorganized scripts and tests, and removed obsolete files.
+
+### Removed
+- **Frontend**: Removed unused components (`fileUpload.tsx`, `icons.tsx`, `util.ts`)
+- **Experimental Code**: Removed `classifier/` directory (unused experimental code)
+- **Test/Debug Files**: Removed all test/debug PNG files from root and `test_output/` directory
+- **Obsolete Scripts**: Removed 9 obsolete test/debug scripts:
+  - `test_fill_fix.py`, `test_icon_render.py`, `test_token_render.py`
+  - `test_svg_normalization.py`, `test_image_normalization.py`, `test_svg_conversion.py`
+  - `debug_image_search.py`, `debug_svg_conversion.py`, `embedding_dimension.py`
+- **Obsolete Batch Script**: Removed `batch_embed_svgs.py` (superseded by `scripts/index/index_eui_icons.py`)
+
+### Changed
+- **Documentation Consolidation**:
+  - Merged 10 `BASIC_DEPLOYMENT_*` docs into single comprehensive `docs/deployment.md`
+  - Merged `BASIC_DEPLOYMENT_TROUBLESHOOTING.md` into `docs/troubleshooting.md`
+  - Created documentation archive structure (`docs/archive/phases/` and `docs/archive/planning/`)
+  - Moved 11 phase-specific implementation docs to `docs/archive/phases/`
+  - Moved 8 completed planning docs to `docs/archive/planning/`
+  - Created `docs/README.md` as documentation index
+  - Reorganized documentation into `docs/api/` and `docs/infrastructure/` subdirectories
+- **Script Reorganization**:
+  - Created script subdirectories: `deploy/`, `setup/`, `verify/`, `manage/`, `index/`, `test/`
+  - Moved all scripts to appropriate subdirectories
+  - Updated all script references in documentation, verification scripts, and test files
+- **Test Reorganization**:
+  - Created test directory structure: `tests/integration/` and `tests/phase/`
+  - Moved all test files to appropriate subdirectories
+  - Created `tests/README.md` with test documentation
+- **Utility Organization**:
+  - Moved `check_index.py` and `diagnose_embeddings.py` to `utils/` directory
+- **Configuration**:
+  - Updated `.gitignore` to exclude test outputs, debug images, and temporary files
+  - Updated `README.md` to reflect new structure and remove references to deleted files
+  - Updated file structure documentation in `README.md`
+
+### Added
+- **Documentation**:
+  - `docs/README.md` - Documentation index with links to all active docs
+  - `tests/README.md` - Test documentation and usage guide
+- **Archive Structure**:
+  - `docs/archive/phases/` - Phase-specific implementation documentation
+  - `docs/archive/planning/` - Completed planning documents
+
+### Impact
+- **Reduced repository size** by removing ~20+ obsolete files
+- **Improved navigation** with clear directory structure
+- **Consolidated documentation** from 45+ docs to ~15 active docs + archive
+- **Better organization** with logical grouping of related files
+- **Cleaner root directory** with only essential files
+
+### Migration Notes
+- **Script paths changed**: All scripts moved to subdirectories (e.g., `scripts/deploy-basic.sh` → `scripts/deploy/deploy-basic.sh`)
+- **Test paths changed**: All tests moved to `tests/` directory (e.g., `test_elasticsearch_setup.py` → `tests/integration/test_elasticsearch_setup.py`)
+- **Documentation paths changed**: Some docs moved to subdirectories (e.g., `docs/MCP_SERVER.md` → `docs/api/mcp-server.md`)
+- **Archive location**: Historical docs available in `docs/archive/` for reference
+
 ## [2025-11-24] - Frontend Performance Optimizations and FOUC Prevention
 
 ### Added
