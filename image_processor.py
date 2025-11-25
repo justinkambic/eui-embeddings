@@ -57,7 +57,8 @@ def detect_background_color(image: Image.Image, sample_size: int = 5) -> bool:
     avg_brightness = np.mean(edge_pixels)
     
     # If average brightness is below 128 (midpoint), background is dark
-    return avg_brightness < 128
+    # Convert NumPy boolean to Python bool for proper type checking
+    return bool(avg_brightness < 128)
 
 def normalize_search_image(image: Image.Image, target_size: int = 224) -> Image.Image:
     """

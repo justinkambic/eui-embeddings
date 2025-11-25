@@ -318,7 +318,7 @@ class SearchResponse(BaseModel):
 async def health_check():
     """Health check endpoint (no authentication required)"""
     health_status = {
-        "status": "ok",
+        "status": "healthy",
         "service": "eui-icon-embeddings",
         "elasticsearch": "connected" if es_client else "not_configured"
     }
@@ -395,7 +395,13 @@ async def embed_image(request: Request, file: UploadFile = File(...)):
         image_bytes = await file.read()
         span.set_attribute("file.size_bytes", len(image_bytes))
         
-        image = Image.open(io.BytesIO(image_bytes))
+        try:
+            image = Image.open(io.BytesIO(image_bytes))
+        except Exception as e:
+            span.record_exception(e)
+            span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+            raise HTTPException(status_code=400, detail=f"Invalid image file: {str(e)}")
+        
         span.set_attribute("image.width", image.size[0])
         span.set_attribute("image.height", image.size[1])
         span.set_attribute("image.mode", image.mode)
@@ -422,6 +428,10 @@ async def embed_svg(request: Request, svg_request: SVGEmbedRequest):
     with tracer.start_as_current_span("embed_svg") as span:
         span.set_attribute("embedding.type", "svg")
         span.set_attribute("svg.content_length", len(svg_request.svg_content))
+        
+        # Validate SVG content is not empty
+        if not svg_request.svg_content or not svg_request.svg_content.strip():
+            raise HTTPException(status_code=422, detail="SVG content cannot be empty")
         
         try:
             # Preprocess SVG: ensure it has proper fill and background for cairosvg

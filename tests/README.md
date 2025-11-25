@@ -4,10 +4,48 @@ This directory contains test files for the EUI Icon Embeddings project.
 
 ## Directory Structure
 
-- `integration/` - Integration tests for core functionality
-- `phase/` - Phase-specific tests (kept for regression testing)
+```
+tests/
+├── unit/              # Unit tests
+│   └── python/        # Python unit tests
+├── integration/       # Integration tests
+└── phase/            # Phase-specific tests
+```
+
+## Test Types
+
+- **Unit Tests** (`unit/`) - Fast, isolated tests for individual functions and components
+- **Integration Tests** (`integration/`) - Tests that verify core functionality with real services
+- **Phase Tests** (`phase/`) - Phase-specific implementation tests (kept for regression testing)
 
 ## Running Tests
+
+### Python Unit Tests
+
+```bash
+# Run all unit tests
+pytest tests/unit/python/
+
+# Run with coverage
+pytest tests/unit/python/ --cov=. --cov-report=html
+
+# Run specific test file
+pytest tests/unit/python/test_embed.py
+
+# Run using test script
+./scripts/test/run-python-tests.sh
+```
+
+### Frontend Tests
+
+```bash
+cd frontend
+npm test
+npm run test:coverage
+
+# Or using test script
+./scripts/test/run-frontend-tests.sh
+```
 
 ### Integration Tests
 
@@ -49,9 +87,15 @@ Before running tests, ensure:
 
 ## Test Categories
 
+### Unit Tests
+
+Fast, isolated tests that mock external dependencies:
+- **Python**: FastAPI endpoints, utility functions, OpenTelemetry config
+- **Frontend**: React components, Next.js API routes, utility functions
+
 ### Integration Tests
 
-These tests verify core functionality:
+These tests verify core functionality with real services:
 - Elasticsearch index setup and configuration
 - Search functionality (text, image, SVG)
 - MCP server functionality
@@ -63,9 +107,23 @@ These tests verify phase-specific implementations:
 - API key authentication
 - Rate limiting
 
+## Test Coverage Goals
+
+- **Python**: 80%+ coverage for core modules (`embed.py`, utilities)
+- **Frontend**: 80%+ coverage for components and API routes
+
+## Documentation
+
+See [docs/testing.md](../docs/testing.md) for detailed testing guide including:
+- How to write tests
+- Testing best practices
+- Mocking strategies
+- Troubleshooting
+
 ## Notes
 
-- Some tests require live services to be running
+- Unit tests use mocked dependencies and don't require live services
+- Integration tests may require live services to be running
 - Some tests may make actual API calls
 - Check individual test files for specific requirements
 

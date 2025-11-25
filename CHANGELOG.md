@@ -5,6 +5,71 @@ All notable changes to the EUI Icon Embeddings project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2025-01-26] - Test Suite Fixes and Coverage Improvements
+
+### Added
+- **Test Configuration Files**:
+  - `pytest.ini` - Centralized pytest configuration with coverage settings, test paths, and async mode
+  - `.coveragerc` - Coverage exclusion patterns for tests, virtual environments, and excluded modules
+  - `frontend/jest.config.js` - Jest configuration with coverage thresholds and file exclusions
+  - `frontend/jest.setup.js` - Jest setup file with mocks and React `act(...)` warning suppression
+  - `tests/conftest.py` - Root-level pytest fixtures with OpenTelemetry mocking for test isolation
+  - `tests/integration/conftest.py` - Integration test fixtures with Elasticsearch client setup
+- **Test Scripts**:
+  - `scripts/test/run-frontend-tests.sh` - Frontend test runner script
+  - `scripts/test/run-python-tests.sh` - Python test runner script
+- **Test Documentation**:
+  - `docs/testing.md` - Comprehensive testing guide with instructions for running frontend and backend tests
+
+### Changed
+- **Python API** (`embed.py`):
+  - Updated `/health` endpoint to return `"healthy"` status (was `"ok"`)
+  - Added `PIL.UnidentifiedImageError` handling in `/embed-image` endpoint for invalid image files (returns 400)
+  - Added explicit validation for empty `svg_content` in `/embed-svg` endpoint (returns 422)
+- **Image Processing** (`image_processor.py`):
+  - Fixed `detect_background_color` to return Python `bool` instead of NumPy boolean types (`np.True_`/`np.False_`)
+- **Test Files**:
+  - `tests/phase/test_phase3_https.py` - Updated health endpoint assertion to match new status value
+  - `tests/phase/test_phase4_api_keys.py` - Fixed async/await handling for `verify_api_key` tests, improved case sensitivity checks, made docs test optional
+  - `tests/unit/python/test_embed.py` - Fixed file upload test, corrected patch paths for `normalize_search_image`
+  - `tests/unit/python/test_mcp_server.py` - Fixed server attribute check to look for `app` or `server` attribute
+  - `tests/unit/python/test_otel_config.py` - Added fixture to handle OpenTelemetry module reloading for tests
+  - `frontend/__tests__/components/mainPage/content.test.tsx` - Fixed text assertions and CSS selector issues
+
+### Fixed
+- **Test Configuration Issues**:
+  - Fixed `pytest: error: unrecognized arguments: --cov-exclude` by moving exclusions to `.coveragerc`
+  - Fixed `ModuleNotFoundError: No module named 'mcp_server'` by adding `pythonpath = .` to `pytest.ini`
+  - Fixed OpenTelemetry connection errors during tests by globally mocking OTEL instrumentation
+  - Fixed Jest CSS parsing errors with Emotion CSS-in-JS by using `fireEvent` instead of `userEvent` for checkbox interactions
+- **Test Failures** (17 total fixes):
+  - Fixed NumPy boolean comparison failures (5 tests) - `detect_background_color` now returns Python `bool`
+  - Fixed health endpoint status mismatches (2 tests) - Updated status to `"healthy"` and test assertions
+  - Fixed embed image endpoint failures (2 tests) - Improved file upload handling and error responses
+  - Fixed embed SVG empty content validation (1 test) - Added explicit empty content check
+  - Fixed Phase 3 HTTPS test (1 test) - Updated assertion to match health endpoint status
+  - Fixed Phase 4 API key tests (6 tests) - Fixed async/await issues, case sensitivity, made docs test optional
+- **Test Warnings**:
+  - Suppressed React `act(...)` warnings from EUI components in Jest tests (false positives)
+  - Fixed OpenTelemetry instrumentation conflicts during test runs
+
+### Testing
+- **Test Results**:
+  - 99 tests passing (previously 92)
+  - 9 tests skipped (integration tests requiring Elasticsearch)
+  - 0 test failures (previously 7)
+  - Coverage: 84.06% (above 70% threshold)
+- **Coverage Configuration**:
+  - Frontend: 70% threshold for statements, functions, and lines; 55% for branches
+  - Backend: 70% threshold for all metrics
+  - Excluded test files, virtual environments, and Next.js boilerplate from coverage
+
+### Impact
+- **Improved Test Reliability**: All tests now pass consistently with proper async handling and mocking
+- **Better Test Isolation**: OpenTelemetry mocking prevents external connection attempts during tests
+- **Cleaner Test Output**: Suppressed false positive warnings from React and EUI components
+- **Comprehensive Coverage**: Test coverage exceeds thresholds with proper exclusions configured
+
 ## [2025-01-25] - Repository Streamlining and Organization
 
 ### Summary

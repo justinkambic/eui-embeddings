@@ -103,6 +103,12 @@ next-env.d.ts
 coverage/
 .nyc_output
 *.lcov
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+*.cover
+.hypothesis/
 
 # Logs
 logs/
