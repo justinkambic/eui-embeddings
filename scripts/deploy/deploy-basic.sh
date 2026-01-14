@@ -5,6 +5,9 @@
 # Usage:
 #   ./scripts/deploy/deploy-basic.sh [python|frontend|both]
 #
+# Environment Variables:
+#   - FORCE_REBUILD=true  Force a full rebuild without Docker cache (slower but ensures fresh build)
+#
 # Prerequisites:
 #   - gcloud CLI installed and authenticated
 #   - Docker installed (for local builds, optional)
@@ -113,7 +116,7 @@ deploy_python_api() {
     fi
     SERVICE_VERSION="${SERVICE_VERSION:-unknown}"
     
-    ENV_VARS="$ENV_VARS,OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-eui-python-api}"
+    ENV_VARS="$ENV_VARS,OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-eui-icon-search-api}"
     ENV_VARS="$ENV_VARS,OTEL_SERVICE_VERSION=$SERVICE_VERSION"
     ENV_VARS="$ENV_VARS,OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-https://ff29e674b8bb4b06b3e71aaacf84879f.ingest.us-central1.gcp.elastic.cloud:443}"
     ENV_VARS="$ENV_VARS,OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-Authorization=ApiKey ZjlhVnRwb0JITGJzUkpwVXhNR0w6S1htMDVsWHJPbW1yczFMOEo0QTFxdw==}"
@@ -126,7 +129,7 @@ deploy_python_api() {
     
     # Use Artifact Registry (Container Registry is deprecated)
     ARTIFACT_REGISTRY="${ARTIFACT_REGISTRY:-$REGION-docker.pkg.dev}"
-    IMAGE_NAME="$ARTIFACT_REGISTRY/$PROJECT_ID/cloud-run-source-deploy/eui-python-api:latest"
+    IMAGE_NAME="$ARTIFACT_REGISTRY/$PROJECT_ID/cloud-run-source-deploy/eui-icon-search-api:latest"
     
     # Ensure Artifact Registry repository exists
     print_info "Ensuring Artifact Registry repository exists..."
@@ -141,9 +144,17 @@ deploy_python_api() {
     gcloud auth configure-docker $ARTIFACT_REGISTRY --quiet
     
     # Build for linux/amd64 (Cloud Run requirement)
-    # Use --no-cache for model download step to ensure models are always downloaded
-    print_info "Building Docker image (this may take several minutes to download models)..."
-    docker build --platform linux/amd64 --no-cache -t "$IMAGE_NAME" -f Dockerfile.python . || {
+    # Docker will cache layers that haven't changed, speeding up subsequent builds
+    # Set FORCE_REBUILD=true to force a full rebuild without cache
+    BUILD_ARGS="--platform linux/amd64"
+    if [ "${FORCE_REBUILD:-false}" = "true" ]; then
+        BUILD_ARGS="$BUILD_ARGS --no-cache"
+        print_info "Building Docker image with --no-cache (forced rebuild)..."
+    else
+        print_info "Building Docker image (using cache for faster builds)..."
+    print_info "Note: If you see 'ModuleNotFoundError: No module named otel_config', ensure otel_config.py is in the project root"
+    fi
+    docker build $BUILD_ARGS -t "$IMAGE_NAME" -f Dockerfile.python . || {
         print_error "Docker build failed. Make sure Docker is installed and running."
         exit 1
     }
@@ -155,7 +166,7 @@ deploy_python_api() {
     }
     
     print_info "Deploying to Cloud Run..."
-    gcloud run deploy eui-python-api \
+    gcloud run deploy eui-icon-search-api \
         --image "$IMAGE_NAME" \
         --platform managed \
         --region "$REGION" \
@@ -167,12 +178,13 @@ deploy_python_api() {
         --timeout 300 \
         --max-instances 10 \
         --min-instances 0 \
-        --cpu-boost
+        --cpu-boost \
+        --startup-probe=timeoutSeconds=5,periodSeconds=10,failureThreshold=60,httpGet.port=8080,httpGet.path=/health
     
     print_info "Python API deployed successfully!"
     
     # Get service URL
-    SERVICE_URL=$(gcloud run services describe eui-python-api \
+    SERVICE_URL=$(gcloud run services describe eui-icon-search-api \
         --region "$REGION" \
         --project "$PROJECT_ID" \
         --format="value(status.url)")
@@ -213,13 +225,13 @@ deploy_frontend() {
     SERVICE_VERSION="${SERVICE_VERSION:-unknown}"
     
     # Server-side OpenTelemetry variables
-    ENV_VARS="$ENV_VARS,OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-eui-frontend}"
+    ENV_VARS="$ENV_VARS,OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-eui-icon-search-frontend}"
     ENV_VARS="$ENV_VARS,OTEL_SERVICE_VERSION=$SERVICE_VERSION"
     ENV_VARS="$ENV_VARS,OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-https://ff29e674b8bb4b06b3e71aaacf84879f.ingest.us-central1.gcp.elastic.cloud:443}"
     ENV_VARS="$ENV_VARS,OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-Authorization=ApiKey ZjlhVnRwb0JITGJzUkpwVXhNR0w6S1htMDVsWHJPbW1yczFMOEo0QTFxdw==}"
     
     # Browser-accessible OpenTelemetry variables (NEXT_PUBLIC_ prefix)
-    ENV_VARS="$ENV_VARS,NEXT_PUBLIC_OTEL_SERVICE_NAME=${NEXT_PUBLIC_OTEL_SERVICE_NAME:-${OTEL_SERVICE_NAME:-eui-frontend}}"
+    ENV_VARS="$ENV_VARS,NEXT_PUBLIC_OTEL_SERVICE_NAME=${NEXT_PUBLIC_OTEL_SERVICE_NAME:-${OTEL_SERVICE_NAME:-eui-icon-search-frontend}}"
     ENV_VARS="$ENV_VARS,NEXT_PUBLIC_OTEL_SERVICE_VERSION=$SERVICE_VERSION"
     # Extract deployment.environment from OTEL_RESOURCE_ATTRIBUTES if needed, or use default
     DEPLOYMENT_ENV="${NEXT_PUBLIC_DEPLOYMENT_ENVIRONMENT:-}"
@@ -244,7 +256,7 @@ deploy_frontend() {
         AUTH_FLAG="--no-allow-unauthenticated"
         print_info "Frontend will require authentication (private)"
         print_warn "After deployment, grant access with:"
-        print_warn "  gcloud run services add-iam-policy-binding eui-frontend \\"
+        print_warn "  gcloud run services add-iam-policy-binding eui-icon-search-frontend \\"
         print_warn "    --region=$REGION --project=$PROJECT_ID \\"
         print_warn "    --member='user:YOUR_EMAIL@example.com' \\"
         print_warn "    --role='roles/run.invoker'"
@@ -255,7 +267,7 @@ deploy_frontend() {
     
     # Use Artifact Registry (Container Registry is deprecated)
     ARTIFACT_REGISTRY="${ARTIFACT_REGISTRY:-$REGION-docker.pkg.dev}"
-    IMAGE_NAME="$ARTIFACT_REGISTRY/$PROJECT_ID/cloud-run-source-deploy/eui-frontend:latest"
+    IMAGE_NAME="$ARTIFACT_REGISTRY/$PROJECT_ID/cloud-run-source-deploy/eui-icon-search-frontend:latest"
     
     # Ensure Artifact Registry repository exists
     print_info "Ensuring Artifact Registry repository exists..."
@@ -282,7 +294,7 @@ deploy_frontend() {
     }
     
     print_info "Deploying to Cloud Run..."
-    gcloud run deploy eui-frontend \
+    gcloud run deploy eui-icon-search-frontend \
         --image "$IMAGE_NAME" \
         --platform managed \
         --region "$REGION" \
@@ -299,7 +311,7 @@ deploy_frontend() {
     print_info "Frontend deployed successfully!"
     
     # Get service URL
-    SERVICE_URL=$(gcloud run services describe eui-frontend \
+    SERVICE_URL=$(gcloud run services describe eui-icon-search-frontend \
         --region "$REGION" \
         --project "$PROJECT_ID" \
         --format="value(status.url)")

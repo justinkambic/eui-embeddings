@@ -50,6 +50,7 @@ RUN mkdir -p /app/.cache/huggingface && \
 COPY embed.py .
 COPY image_processor.py .
 COPY svg_processor.py .
+COPY otel_config.py .
 
 # Switch to non-root user
 USER appuser
@@ -57,9 +58,10 @@ USER appuser
 # Expose port (default 8000, can be overridden by PORT env var)
 EXPOSE 8000
 
-# Health check endpoint
+# Health check endpoint (uses PORT env var, defaults to 8000)
+# Note: Cloud Run uses its own health checks, but this is useful for local testing
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
+  CMD sh -c 'curl -f http://localhost:${PORT:-8000}/health || exit 1'
 
 # Run the application
 # PORT env var is used by Cloud Run, fallback to 8000

@@ -23,7 +23,7 @@ import multiprocessing
 import time
 
 # Initialize OpenTelemetry before FastAPI app creation
-from otel_config import initialize_instrumentation, instrument_fastapi, tracer, meter
+from otel_config import initialize_instrumentation, instrument_fastapi, tracer, meter, get_trace_id
 from opentelemetry import trace
 
 # Initialize OpenTelemetry instrumentation
@@ -138,8 +138,20 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         
         return response
 
+# Trace ID middleware to add trace ID to response headers for debugging
+class TraceIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        # Add trace ID to response header for debugging
+        trace_id = get_trace_id()
+        if trace_id:
+            response.headers["X-Trace-Id"] = trace_id
+        return response
+
 # Add security headers middleware (before CORS)
 app.add_middleware(SecurityHeadersMiddleware)
+# Add trace ID middleware (after security headers)
+app.add_middleware(TraceIdMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

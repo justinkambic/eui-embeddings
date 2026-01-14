@@ -6,8 +6,14 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Update Alpine packages to fix security vulnerabilities
+RUN apk update && apk upgrade --no-cache
+
 # Copy package files
 COPY frontend/package*.json ./
+
+# Update npm to latest version to fix security vulnerabilities
+RUN npm install -g npm@latest
 
 # Install dependencies
 RUN npm ci
@@ -23,15 +29,31 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Update Alpine packages to fix security vulnerabilities
+RUN apk update && apk upgrade --no-cache
+
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nextjs -u 1001
 
+# Copy package files for production dependencies
+COPY --from=builder --chown=nextjs:nodejs /app/package*.json ./
+
+# Update npm to latest version to fix security vulnerabilities
+RUN npm install -g npm@latest
+
+# Install only production dependencies
+RUN npm ci --only=production && npm cache clean --force
+
 # Copy necessary files from builder
-# Next.js standalone output includes server.js and all dependencies
-# Note: instrumentation.ts is automatically included in standalone build if present
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# Copy Next.js build output
+COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
+COPY --from=builder --chown=nextjs:nodejs /app/next.config.js ./next.config.js
+COPY --from=builder --chown=nextjs:nodejs /app/instrumentation.ts ./instrumentation.ts
+
+# Copy public directory if it exists (create empty if not)
+# Next.js works fine without a public directory, so we'll create it empty if it doesn't exist
+RUN mkdir -p ./public
 
 # Switch to non-root user
 USER nextjs
@@ -41,7 +63,7 @@ EXPOSE 3000
 
 # Health check endpoint (Next.js doesn't have built-in health, so check root)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/', (r) => {process.exit(r.statusCode < 500 ? 0 : 1)})" || exit 1
+  CMD node -e "require('http').get('http://localhost:${PORT:-3000}/', (r) => {process.exit(r.statusCode < 500 ? 0 : 1)})" || exit 1
 
 # Run Next.js in production mode
 # PORT env var is used by Cloud Run, fallback to 3000
@@ -52,13 +74,13 @@ ENV NODE_ENV=production
 # Server-side variables (not prefixed with NEXT_PUBLIC_)
 ENV OTEL_EXPORTER_OTLP_ENDPOINT=https://ff29e674b8bb4b06b3e71aaacf84879f.ingest.us-central1.gcp.elastic.cloud:443
 ENV OTEL_EXPORTER_OTLP_HEADERS=Authorization=ApiKey ZjlhVnRwb0JITGJzUkpwVXhNR0w6S1htMDVsWHJPbW1yczFMOEo0QTFxdw==
-ENV OTEL_SERVICE_NAME=eui-frontend
+ENV OTEL_SERVICE_NAME=eui-icon-search-frontend
 ENV OTEL_SERVICE_VERSION=unknown
 # Browser-accessible variables (prefixed with NEXT_PUBLIC_)
-ENV NEXT_PUBLIC_OTEL_SERVICE_NAME=eui-frontend
+ENV NEXT_PUBLIC_OTEL_SERVICE_NAME=eui-icon-search-frontend
 ENV NEXT_PUBLIC_OTEL_SERVICE_VERSION=unknown
 ENV NEXT_PUBLIC_DEPLOYMENT_ENVIRONMENT=production
 ENV NEXT_PUBLIC_ELASTIC_APM_SERVER_URL=https://ff29e674b8bb4b06b3e71aaacf84879f.ingest.us-central1.gcp.elastic.cloud:443
 
-CMD ["node", "server.js"]
+CMD ["npm", "start"]
 

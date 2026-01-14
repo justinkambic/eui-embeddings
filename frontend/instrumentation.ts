@@ -18,6 +18,8 @@ export async function register() {
     const { Resource } = await import('@opentelemetry/resources');
     const { SEMRESATTRS_SERVICE_NAME, SEMRESATTRS_SERVICE_VERSION } = await import('@opentelemetry/semantic-conventions');
     const { PeriodicExportingMetricReader } = await import('@opentelemetry/sdk-metrics');
+    const { W3CTraceContextPropagator } = await import('@opentelemetry/propagator-tracecontext');
+    const { propagation } = await import('@opentelemetry/api');
 
     // Configuration from environment variables
     const serviceName = process.env.NEXT_PUBLIC_OTEL_SERVICE_NAME || process.env.OTEL_SERVICE_NAME || 'eui-frontend';
@@ -45,6 +47,9 @@ export async function register() {
       [SEMRESATTRS_SERVICE_VERSION]: serviceVersion,
       'deployment.environment': deploymentEnvironment,
     };
+
+    // Configure W3C Trace Context propagator for distributed tracing
+    propagation.setGlobalPropagator(new W3CTraceContextPropagator());
 
     // Initialize OpenTelemetry SDK
     // Note: Using type assertion to work around TypeScript version compatibility issue

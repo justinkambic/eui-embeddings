@@ -63,7 +63,7 @@ list_services() {
     gcloud run services list \
         --project "$PROJECT_ID" \
         --region "$REGION" \
-        --filter="metadata.name:eui-python-api" \
+        --filter="metadata.name:eui-icon-search-api" \
         --format="table(metadata.name,status.url,status.conditions[0].status)" 2>/dev/null || echo "  Not found"
     
     echo ""
@@ -71,7 +71,7 @@ list_services() {
     gcloud run services list \
         --project "$PROJECT_ID" \
         --region "$REGION" \
-        --filter="metadata.name:eui-frontend" \
+        --filter="metadata.name:eui-icon-search-frontend" \
         --format="table(metadata.name,status.url,status.conditions[0].status)" 2>/dev/null || echo "  Not found"
 }
 
@@ -79,11 +79,11 @@ list_services() {
 delete_python_api() {
     print_header "Deleting Python API"
     
-    if gcloud run services describe eui-python-api \
+    if gcloud run services describe eui-icon-search-api \
         --region "$REGION" \
         --project "$PROJECT_ID" &>/dev/null; then
         
-        print_warn "This will permanently delete the eui-python-api service"
+        print_warn "This will permanently delete the eui-icon-search-api service"
         read -p "Are you sure? (y/N): " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -91,7 +91,7 @@ delete_python_api() {
             return
         fi
         
-        gcloud run services delete eui-python-api \
+        gcloud run services delete eui-icon-search-api \
             --region "$REGION" \
             --project "$PROJECT_ID" \
             --quiet
@@ -106,11 +106,11 @@ delete_python_api() {
 delete_frontend() {
     print_header "Deleting Frontend"
     
-    if gcloud run services describe eui-frontend \
+    if gcloud run services describe eui-icon-search-frontend \
         --region "$REGION" \
         --project "$PROJECT_ID" &>/dev/null; then
         
-        print_warn "This will permanently delete the eui-frontend service"
+        print_warn "This will permanently delete the eui-icon-search-frontend service"
         read -p "Are you sure? (y/N): " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -118,7 +118,7 @@ delete_frontend() {
             return
         fi
         
-        gcloud run services delete eui-frontend \
+        gcloud run services delete eui-icon-search-frontend \
             --region "$REGION" \
             --project "$PROJECT_ID" \
             --quiet
@@ -137,15 +137,15 @@ get_service_info() {
     echo ""
     
     # Python API
-    if gcloud run services describe eui-python-api \
+    if gcloud run services describe eui-icon-search-api \
         --region "$REGION" \
         --project "$PROJECT_ID" &>/dev/null; then
-        PYTHON_URL=$(gcloud run services describe eui-python-api \
+        PYTHON_URL=$(gcloud run services describe eui-icon-search-api \
             --region "$REGION" \
             --project "$PROJECT_ID" \
             --format="value(status.url)")
         echo "Python API:"
-        echo "  Name: eui-python-api"
+        echo "  Name: eui-icon-search-api"
         echo "  URL: $PYTHON_URL"
         echo "  Region: $REGION"
         echo "  Project: $PROJECT_ID"
@@ -156,15 +156,15 @@ get_service_info() {
     fi
     
     # Frontend
-    if gcloud run services describe eui-frontend \
+    if gcloud run services describe eui-icon-search-frontend \
         --region "$REGION" \
         --project "$PROJECT_ID" &>/dev/null; then
-        FRONTEND_URL=$(gcloud run services describe eui-frontend \
+        FRONTEND_URL=$(gcloud run services describe eui-icon-search-frontend \
             --region "$REGION" \
             --project "$PROJECT_ID" \
             --format="value(status.url)")
         echo "Frontend:"
-        echo "  Name: eui-frontend"
+        echo "  Name: eui-icon-search-frontend"
         echo "  URL: $FRONTEND_URL"
         echo "  Region: $REGION"
         echo "  Project: $PROJECT_ID"
@@ -175,8 +175,8 @@ get_service_info() {
     fi
     
     echo "To delete manually:"
-    echo "  gcloud run services delete eui-python-api --region=$REGION --project=$PROJECT_ID"
-    echo "  gcloud run services delete eui-frontend --region=$REGION --project=$PROJECT_ID"
+    echo "  gcloud run services delete eui-icon-search-api --region=$REGION --project=$PROJECT_ID"
+    echo "  gcloud run services delete eui-icon-search-frontend --region=$REGION --project=$PROJECT_ID"
 }
 
 # Main deletion logic

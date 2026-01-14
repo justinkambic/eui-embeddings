@@ -8,8 +8,7 @@
       "env": {
         "SEARCH_API_URL": "http://localhost:8000/search",
         "EMBEDDING_SERVICE_URL": "http://localhost:8000",
-        "ELASTICSEARCH_ENDPOINT": "https://your-cluster.es.amazonaws.com",
-        "ELASTICSEARCH_API_KEY": "your-api-key"
+        "MCP_API_KEY": "your-api-key-for-python-api"
       }
     },
     "eui-icon-search-docker": {
@@ -18,9 +17,8 @@
         "run",
         "-i",
         "--rm",
-        "-e", "ELASTICSEARCH_ENDPOINT=https://your-cluster.es.amazonaws.com",
-        "-e", "ELASTICSEARCH_API_KEY=your-api-key",
         "-e", "EMBEDDING_SERVICE_URL=http://host.docker.internal:8000",
+        "-e", "MCP_API_KEY=your-api-key-for-python-api",
         "eui-icon-search-mcp:latest"
       ]
     }

@@ -32,9 +32,12 @@ export EMBEDDING_SERVICE_URL=http://localhost:8000
 # This defaults to the Python API search endpoint
 export SEARCH_API_URL=http://localhost:8000/search
 
-# Optional: Direct Elasticsearch access (for Python API)
-export ELASTICSEARCH_ENDPOINT=https://your-cluster.es.amazonaws.com
-export ELASTICSEARCH_API_KEY=your-api-key
+# API key for authenticating with the Python API (required if API_KEYS is set on the server)
+# This should match one of the API keys configured in the Python API's API_KEYS environment variable
+export MCP_API_KEY=your-api-key-for-python-api
+
+# Note: The MCP server does NOT need Elasticsearch credentials.
+# The Python API handles all Elasticsearch communication internally.
 ```
 
 ## Docker Usage
@@ -56,9 +59,8 @@ The MCP server requires environment variables to be passed at runtime:
 
 ```bash
 docker run -i \
-  -e ELASTICSEARCH_ENDPOINT=https://your-cluster.es.amazonaws.com \
-  -e ELASTICSEARCH_API_KEY=your-api-key \
   -e EMBEDDING_SERVICE_URL=http://localhost:8000 \
+  -e MCP_API_KEY=your-api-key-for-python-api \
   eui-icon-search-mcp:latest
 ```
 
@@ -79,9 +81,8 @@ Update your Claude Desktop configuration to use Docker:
         "run",
         "-i",
         "--rm",
-        "-e", "ELASTICSEARCH_ENDPOINT=https://your-cluster.es.amazonaws.com",
-        "-e", "ELASTICSEARCH_API_KEY=your-api-key",
         "-e", "EMBEDDING_SERVICE_URL=http://host.docker.internal:8000",
+        "-e", "MCP_API_KEY=your-api-key-for-python-api",
         "eui-icon-search-mcp:latest"
       ]
     }
@@ -102,9 +103,8 @@ services:
       context: .
       dockerfile: Dockerfile.mcp
     environment:
-      - ELASTICSEARCH_ENDPOINT=${ELASTICSEARCH_ENDPOINT}
-      - ELASTICSEARCH_API_KEY=${ELASTICSEARCH_API_KEY}
       - EMBEDDING_SERVICE_URL=http://python-api:8000
+      - MCP_API_KEY=${MCP_API_KEY}
     stdin_open: true
     tty: true
     networks:
@@ -117,7 +117,7 @@ services:
 
 Before running the MCP server, ensure:
 1. The Python embedding service is running (`uvicorn embed:app --port 8000`)
-2. Elasticsearch is configured and accessible (required for search functionality)
+2. The Python API has access to Elasticsearch (the MCP server doesn't need direct ES access)
 
 ### Start the Server (Local)
 
@@ -328,8 +328,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
       "env": {
         "SEARCH_API_URL": "http://localhost:8000/search",
         "EMBEDDING_SERVICE_URL": "http://localhost:8000",
-        "ELASTICSEARCH_ENDPOINT": "https://your-cluster.es.amazonaws.com",
-        "ELASTICSEARCH_API_KEY": "your-api-key"
+        "MCP_API_KEY": "your-api-key-for-python-api"
       }
     }
   }
@@ -352,14 +351,10 @@ The server uses stdio transport, which is compatible with any MCP client that su
 The MCP server acts as a wrapper around the existing search infrastructure:
 
 ```
-Agent → MCP Server → Search API → Embedding Service → Elasticsearch
+Agent → MCP Server → Python API → Elasticsearch
 ```
 
-Or directly:
-
-```
-Agent → MCP Server → Embedding Service → Elasticsearch
-```
+The MCP server only communicates with the Python API. The Python API handles all Elasticsearch communication internally.
 
 The server:
 1. Receives tool calls from agents via MCP protocol
@@ -530,6 +525,43 @@ Install with: `pip install mcp`
 
 **Note**: The server will still work in CLI mode without the SDK, but you won't be able to use it as an MCP server.
 
+### "API key required" or "Invalid API key" errors
+If your Python API has `API_KEYS` configured, you must provide the `MCP_API_KEY` environment variable:
+
+**For local development:**
+```bash
+export MCP_API_KEY=your-api-key
+python mcp_server.py
+```
+
+**For Claude Desktop configuration:**
+```json
+{
+  "mcpServers": {
+    "eui-icon-search": {
+      "command": "python",
+      "args": ["/path/to/eui-embeddings/mcp_server.py"],
+      "env": {
+        "MCP_API_KEY": "your-api-key-for-python-api",
+        "EMBEDDING_SERVICE_URL": "https://your-deployed-api.run.app"
+      }
+    }
+  }
+}
+```
+
+**For deployed Cloud Run service:**
+- Set `MCP_API_KEY` to one of the API keys configured in the Python API's `API_KEYS` environment variable
+- Ensure `EMBEDDING_SERVICE_URL` points to your deployed service (e.g., `https://eui-icon-search-api-xxxxx-uc.a.run.app`)
+
+**Test with API key:**
+```bash
+curl -X POST https://your-api.run.app/search \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d '{"type":"text","query":"test"}'
+```
+
 ### "Connection refused" errors
 Ensure the embedding service is running:
 - Embedding service: `uvicorn embed:app --port 8000`
@@ -539,6 +571,7 @@ Ensure the embedding service is running:
 curl http://localhost:8000/docs
 curl -X POST http://localhost:8000/search \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
   -d '{"type":"text","query":"test"}'
 ```
 

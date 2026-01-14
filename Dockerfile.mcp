@@ -27,9 +27,10 @@ USER appuser
 
 # Run the MCP server
 # Environment variables should be provided at runtime:
-# - ELASTICSEARCH_ENDPOINT
-# - ELASTICSEARCH_API_KEY
 # - EMBEDDING_SERVICE_URL (optional, defaults to http://localhost:8000)
 # - SEARCH_API_URL (optional, defaults to {EMBEDDING_SERVICE_URL}/search)
+# - MCP_API_KEY (optional, but required if Python API has API_KEYS set)
+# Note: The MCP server does NOT need Elasticsearch credentials.
+# The Python API handles all Elasticsearch communication internally.
 CMD ["python", "mcp_server.py"]
 

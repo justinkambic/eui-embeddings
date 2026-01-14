@@ -3,7 +3,7 @@
 MCP Server for EUI Icon Search
 
 This MCP server exposes tools for searching EUI icons by SVG code, image data, or text.
-It interfaces with the existing Python embedding API and Elasticsearch search functionality.
+It interfaces with the Python embedding API, which handles all Elasticsearch communication.
 
 The server includes signal handling for immediate exit on Ctrl+C. Note that if the server
 is blocked reading from stdin (waiting for MCP protocol messages), it may require
@@ -45,11 +45,14 @@ except ImportError:
 import requests
 from PIL import Image
 import io
+from pathlib import Path
 
 # Configuration
 EMBEDDING_SERVICE_URL = os.getenv("EMBEDDING_SERVICE_URL", "http://localhost:8000")
 # Search API URL defaults to Python API endpoint
 SEARCH_API_URL = os.getenv("SEARCH_API_URL", f"{EMBEDDING_SERVICE_URL}/search")
+# API key for authenticating with the Python API (optional, but required if API_KEYS is set on the server)
+MCP_API_KEY = os.getenv("MCP_API_KEY", os.getenv("API_KEY", ""))
 
 
 def search_via_api(search_type: str, query: str, icon_type: Optional[str] = None, fields: Optional[list] = None) -> dict:
@@ -66,11 +69,16 @@ def search_via_api(search_type: str, query: str, icon_type: Optional[str] = None
     if fields:
         payload["fields"] = fields
     
+    # Build headers with API key if provided
+    headers = {"Content-Type": "application/json"}
+    if MCP_API_KEY:
+        headers["X-API-Key"] = MCP_API_KEY
+    
     try:
         response = requests.post(
             SEARCH_API_URL,
             json=payload,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             timeout=30
         )
         response.raise_for_status()
@@ -146,12 +154,54 @@ async def search_by_svg(svg_content: str, icon_type: Optional[str] = None, field
     return format_search_results(result, max_results=max_results)
 
 
-async def search_by_image(image_data: str, icon_type: Optional[str] = None, fields: Optional[list] = None, max_results: int = 10) -> str:
+def image_to_base64(image_path_or_data: str | bytes) -> str:
+    """
+    Convert image file path, binary data, or base64 string to base64 string.
+    
+    Args:
+        image_path_or_data: File path to an image, base64 string, data URI, or binary bytes
+        
+    Returns:
+        Base64-encoded image string (without data URI prefix)
+    """
+    # Handle binary bytes directly
+    if isinstance(image_path_or_data, bytes):
+        base64_data = base64.b64encode(image_path_or_data).decode('utf-8')
+        print(f"[MCP] Converted binary image data to base64: {len(base64_data)} chars", file=sys.stderr, flush=True)
+        return base64_data
+    
+    # If it's already a data URI, extract the base64 part
+    if image_path_or_data.startswith("data:image"):
+        return image_path_or_data.split(",", 1)[1] if "," in image_path_or_data else image_path_or_data
+    
+    # If it looks like base64 (long alphanumeric string), assume it already is
+    # Base64 strings are typically long and contain A-Z, a-z, 0-9, +, /, =
+    if len(image_path_or_data) > 100 and all(c.isalnum() or c in "+/=" for c in image_path_or_data[:100]):
+        return image_path_or_data
+    
+    # Otherwise, treat it as a file path
+    try:
+        image_path = Path(image_path_or_data)
+        if not image_path.exists():
+            raise FileNotFoundError(f"Image file not found: {image_path_or_data}")
+        
+        with open(image_path, 'rb') as f:
+            image_bytes = f.read()
+        
+        base64_data = base64.b64encode(image_bytes).decode('utf-8')
+        print(f"[MCP] Converted image file to base64: {len(base64_data)} chars", file=sys.stderr, flush=True)
+        return base64_data
+    except Exception as e:
+        print(f"[MCP] Error converting image: {e}", file=sys.stderr, flush=True)
+        raise ValueError(f"Could not process image '{image_path_or_data}': {str(e)}. Provide a file path, base64 string, data URI, or binary bytes.")
+
+
+async def search_by_image(image_data: str | bytes, icon_type: Optional[str] = None, fields: Optional[list] = None, max_results: int = 10) -> str:
     """
     Search for icons using image data.
     
     Args:
-        image_data: Base64-encoded image data or data URI (data:image/...;base64,...)
+        image_data: File path to an image, base64-encoded image data, or data URI (data:image/...;base64,...)
     """
     # If fields are explicitly provided, use them
     # Otherwise, default based on icon_type
@@ -163,12 +213,8 @@ async def search_by_image(image_data: str, icon_type: Optional[str] = None, fiel
     
     print(f"[MCP] Image search using fields: {fields}", file=sys.stderr, flush=True)
     
-    # Handle data URI format
-    if image_data.startswith("data:image"):
-        # Extract base64 part from data URI
-        base64_part = image_data.split(",", 1)[1] if "," in image_data else image_data
-    else:
-        base64_part = image_data
+    # Convert image to base64 if needed (handles file paths, data URIs, or already base64)
+    base64_part = image_to_base64(image_data)
     
     result = search_via_api("image", base64_part, icon_type=icon_type, fields=fields)
     return format_search_results(result, max_results=max_results)
@@ -218,8 +264,8 @@ if MCP_AVAILABLE:
                     "type": "object",
                     "properties": {
                         "image_data": {
-                            "type": "string",
-                            "description": "Base64-encoded image data or data URI (data:image/...;base64,...)"
+                            "type": ["string", "object"],
+                            "description": "Image file path, base64-encoded image data, data URI (data:image/...;base64,...), or binary image data. File paths and binary data will be automatically converted to base64. Accepts: file path (string), base64 string, data URI, or binary blob (object with data property)."
                         },
                         "icon_type": {
                             "type": "string",
@@ -271,6 +317,27 @@ if MCP_AVAILABLE:
                         type="text",
                         text="Error: image_data is required"
                     )]
+                
+                # Handle binary blob objects (if passed as object with data property)
+                if isinstance(image_data, dict):
+                    if "data" in image_data:
+                        # Convert binary data to bytes if needed
+                        blob_data = image_data["data"]
+                        if isinstance(blob_data, str):
+                            # If it's a base64 string in the data property
+                            image_data = blob_data
+                        elif isinstance(blob_data, (bytes, bytearray)):
+                            # If it's actual binary data
+                            image_data = blob_data
+                        else:
+                            # Try to decode if it's a list of integers (common JSON encoding)
+                            try:
+                                image_data = bytes(blob_data)
+                            except (TypeError, ValueError):
+                                image_data = str(blob_data)
+                    else:
+                        # If it's a dict but no data property, try to convert to string
+                        image_data = str(image_data)
                 
                 result = await search_by_image(
                     image_data,

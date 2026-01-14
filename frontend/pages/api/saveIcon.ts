@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import fetch from "node-fetch";
 import { trace } from "@opentelemetry/api";
+import { extractTraceContext, getTraceId, injectTraceContext } from "../../lib/traceContext";
 import { client, INDEX_NAME } from "../../client/es";
 
 const tracer = trace.getTracer("eui-frontend-api");
@@ -20,7 +21,10 @@ export default async function handler(
 
     console.log("icon, description", iconName, description);
     
-    // Create span for save operation
+    // Extract trace context from incoming request headers (from RUM or other services)
+    const extractedContext = extractTraceContext(req);
+    
+    // Create span for save operation within the extracted trace context
     const span = tracer.startSpan("api.saveIcon", {
       attributes: {
         "icon.name": iconName,
@@ -28,7 +32,13 @@ export default async function handler(
         "http.method": req.method || "POST",
         "http.route": "/api/saveIcon",
       },
-    });
+    }, extractedContext);
+    
+    // Add trace ID to span attributes for easier correlation
+    const traceId = getTraceId();
+    if (traceId) {
+      span.setAttribute("trace.id", traceId);
+    }
     
     const embeddingServiceUrl = process.env.EMBEDDING_SERVICE_URL || "http://localhost:8000";
     const apiKey = process.env.FRONTEND_API_KEY;
@@ -36,6 +46,10 @@ export default async function handler(
     if (apiKey) {
       headers["X-API-Key"] = apiKey;
     }
+    
+    // Inject trace context into headers for propagation to Python API
+    // FetchInstrumentation should handle this automatically, but we ensure it's done
+    injectTraceContext(headers);
     
     const [exists, embeddingsRes] = await Promise.all([
       client.exists({ index: INDEX_NAME, id: iconName }),
@@ -122,6 +136,11 @@ export default async function handler(
     span.setStatus({ code: 1 }); // OK
     span.end();
     
+    // Add trace ID to response header for debugging (optional)
+    if (traceId) {
+      res.setHeader("X-Trace-Id", traceId);
+    }
+    
     // const [esRes, embeddingsRes] = await Promise.all([
     //   client.get({ index: "icons", id: iconName }).catch((e) => {
     //     console.error("Elasticsearch get error:", e);
@@ -153,5 +172,16 @@ export default async function handler(
     return res.status(200).json({ success: true });
   }
 
+  // Extract trace context even for non-POST requests
+  const extractedContext = extractTraceContext(req);
+  const span = tracer.startSpan("api.saveIcon", {
+    attributes: {
+      "http.method": req.method || "GET",
+      "http.route": "/api/saveIcon",
+    },
+  }, extractedContext);
+  span.setStatus({ code: 2, message: "Method not allowed" }); // ERROR
+  span.end();
+  
   return res.status(405).json({ error: "Method not allowed" });
 }

@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import fetch from "node-fetch";
 import { trace } from "@opentelemetry/api";
+import { extractTraceContext, getTraceId, injectTraceContext } from "../../lib/traceContext";
 
 const tracer = trace.getTracer("eui-frontend-api");
 
@@ -31,7 +32,10 @@ export default async function handler(
   const searchApiUrl =
     process.env.EMBEDDING_SERVICE_URL || "http://localhost:8000";
   
-  // Create span for search operation
+  // Extract trace context from incoming request headers (from RUM or other services)
+  const extractedContext = extractTraceContext(req);
+  
+  // Create span for search operation within the extracted trace context
   const span = tracer.startSpan("api.search", {
     attributes: {
       "search.type": type,
@@ -40,7 +44,13 @@ export default async function handler(
       "http.method": req.method || "POST",
       "http.route": "/api/search",
     },
-  });
+  }, extractedContext);
+  
+  // Add trace ID to span attributes for easier correlation
+  const traceId = getTraceId();
+  if (traceId) {
+    span.setAttribute("trace.id", traceId);
+  }
 
   if (icon_type) {
     span.setAttribute("search.icon_type", icon_type);
@@ -60,6 +70,10 @@ export default async function handler(
     if (apiKey) {
       headers["X-API-Key"] = apiKey;
     }
+    
+    // Inject trace context into headers for propagation to Python API
+    // FetchInstrumentation should handle this automatically, but we ensure it's done
+    injectTraceContext(headers);
 
     const response = await fetch(searchUrl, {
       method: "POST",
@@ -107,6 +121,11 @@ export default async function handler(
     span.setAttribute("search.total_results", typeof data.total === 'object' ? data.total?.value || 0 : (data.total || 0));
     span.setStatus({ code: 1 }); // OK
     span.end();
+    
+    // Add trace ID to response header for debugging (optional)
+    if (traceId) {
+      res.setHeader("X-Trace-Id", traceId);
+    }
     
     return res.status(200).json(data);
   } catch (error: any) {

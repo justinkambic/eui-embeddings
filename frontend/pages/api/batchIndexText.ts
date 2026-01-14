@@ -1,8 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { client, INDEX_NAME } from "../../client/es";
 import fetch from "node-fetch";
+import { trace } from "@opentelemetry/api";
+import { extractTraceContext, getTraceId, injectTraceContext } from "../../lib/traceContext";
 import { verifyAdminAuth } from "../../lib/auth";
 import { rateLimit } from "../../lib/rateLimit";
+
+const tracer = trace.getTracer("eui-frontend-api");
 
 interface TextIndexItem {
   iconName: string;
@@ -57,6 +61,21 @@ export default async function handler(
     return res.status(400).json({ error: "Missing or empty 'items' array" });
   }
 
+  // Extract trace context from incoming request headers
+  const extractedContext = extractTraceContext(req);
+  const span = tracer.startSpan("api.batchIndexText", {
+    attributes: {
+      "batch.size": items.length,
+      "http.method": req.method || "POST",
+      "http.route": "/api/batchIndexText",
+    },
+  }, extractedContext);
+  
+  const traceId = getTraceId();
+  if (traceId) {
+    span.setAttribute("trace.id", traceId);
+  }
+
   const results = {
     success: 0,
     failed: 0,
@@ -78,6 +97,9 @@ export default async function handler(
           if (apiKey) {
             headers["X-API-Key"] = apiKey;
           }
+          
+          // Inject trace context for propagation to Python API
+          injectTraceContext(headers);
           
           const embedRes = await fetch(`${embeddingServiceUrl}/embed`, {
             method: "POST",
@@ -156,6 +178,17 @@ export default async function handler(
     if (i + batchSize < items.length) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
+  }
+
+  // Set span attributes and end span
+  span.setAttribute("batch.success", results.success);
+  span.setAttribute("batch.failed", results.failed);
+  span.setStatus({ code: results.failed === 0 ? 1 : 2 }); // OK if no failures, ERROR otherwise
+  span.end();
+  
+  // Add trace ID to response header for debugging
+  if (traceId) {
+    res.setHeader("X-Trace-Id", traceId);
   }
 
   return res.status(200).json({

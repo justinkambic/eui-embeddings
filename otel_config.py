@@ -8,7 +8,8 @@ It configures auto-instrumentation for FastAPI, uvicorn, requests, and elasticse
 import os
 import sys
 import logging
-from opentelemetry import trace, metrics
+from typing import Optional
+from opentelemetry import trace, metrics, propagate
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.metrics import MeterProvider
@@ -21,6 +22,18 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.instrumentation.elasticsearch import ElasticsearchInstrumentor
 # Note: Uvicorn instrumentation is not available as a separate package
 # FastAPI instrumentation already covers uvicorn ASGI server instrumentation
+
+# Try to import W3C Trace Context propagator
+# The default propagator in OpenTelemetry Python SDK is already W3C Trace Context,
+# but we'll try to set it explicitly if available
+try:
+    from opentelemetry.propagators.tracecontext import TraceContextTextMapPropagator
+    TRACE_CONTEXT_PROPAGATOR_AVAILABLE = True
+except ImportError:
+    # Fallback: use default propagator (which is W3C Trace Context)
+    # The default global propagator is already W3C Trace Context in OpenTelemetry Python SDK
+    TRACE_CONTEXT_PROPAGATOR_AVAILABLE = False
+    logger.warning("TraceContextTextMapPropagator not available, using default propagator (W3C Trace Context)")
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +71,17 @@ for attr in OTEL_RESOURCE_ATTRIBUTES.split(","):
 # Create resource with attributes
 resource = Resource.create(resource_attributes)
 
+# Configure W3C Trace Context propagator for distributed tracing
+# This ensures trace context (traceparent/tracestate headers) is properly propagated
+# Note: The default propagator in OpenTelemetry Python SDK is already W3C Trace Context,
+# but we set it explicitly to ensure it's configured correctly
+if TRACE_CONTEXT_PROPAGATOR_AVAILABLE:
+    propagate.set_global_textmap(TraceContextTextMapPropagator())
+    logger.info("W3C Trace Context propagator configured explicitly")
+else:
+    # Default propagator is already W3C Trace Context, so we're good
+    logger.info("Using default W3C Trace Context propagator")
+
 # Initialize TracerProvider
 tracer_provider = TracerProvider(resource=resource)
 trace.set_tracer_provider(tracer_provider)
@@ -86,6 +110,20 @@ tracer_provider.add_span_processor(span_processor)
 # Get tracer and meter
 tracer = trace.get_tracer(__name__)
 meter = metrics.get_meter(__name__)
+
+def get_trace_id() -> Optional[str]:
+    """
+    Get the current trace ID for logging/debugging.
+    
+    Returns:
+        The trace ID as a hex string, or None if no active span exists.
+    """
+    current_span = trace.get_current_span()
+    if current_span:
+        span_context = current_span.get_span_context()
+        if span_context.is_valid:
+            return format(span_context.trace_id, '032x')  # Format as 32-character hex string
+    return None
 
 # Initialize auto-instrumentation
 # Note: FastAPI instrumentation will be done in embed.py after app creation
