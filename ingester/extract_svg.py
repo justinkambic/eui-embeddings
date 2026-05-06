@@ -79,21 +79,60 @@ def extract_from_tsx(tsx_text: str) -> ExtractedSvg:
     return ExtractedSvg(inner=cleaned.strip(), viewbox=vb)
 
 
+_JSX_NUMERIC_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
+_JSX_STRING_RE = re.compile(r"""^(['"])([^'"]*)\1$""")
+_JSX_GENERATE_ID_RE = re.compile(r"""^generateId\(\s*['"]([^'"]+)['"]\s*\)$""")
+# Backtick-template literal containing exactly one ${generateId('x')} interpolation.
+_JSX_TEMPLATE_GEN_ID_RE = re.compile(
+    r"""^`([^`$]*)\$\{\s*generateId\(\s*['"]([^'"]+)['"]\s*\)\s*\}([^`$]*)`$"""
+)
+
+
+def _try_recover_jsx_literal(body: str) -> str | None:
+    """If a JSX expression body is a literal we can preserve, return its
+    string form. Otherwise return None and the caller should drop the
+    whole attribute (current default behavior)."""
+    s = body.strip()
+    # Pure number: width={16} → width="16"
+    if _JSX_NUMERIC_RE.match(s):
+        return s
+    # Quoted string: foo={'bar'} → foo="bar"
+    m = _JSX_STRING_RE.match(s)
+    if m:
+        return m.group(2)
+    # generateId('x') → "x"
+    m = _JSX_GENERATE_ID_RE.match(s)
+    if m:
+        return m.group(1)
+    # `prefix${generateId('x')}suffix` → "prefix" + "x" + "suffix"
+    m = _JSX_TEMPLATE_GEN_ID_RE.match(s)
+    if m:
+        return f"{m.group(1)}{m.group(2)}{m.group(3)}"
+    return None
+
+
 def _strip_jsx(body: str) -> str:
     """Brace-aware JSX stripper.
 
     Walks characters; outside of string literals, when we see `{`, we find
-    the matching `}` (handling nesting like `style={{maskType:'alpha'}}`)
-    and remove everything from the opening brace through the close. If the
-    `{` was preceded by `name=`, we also remove the attribute name and the
-    `=` so the resulting tag remains valid.
+    the matching `}` (handling nesting like `style={{maskType:'alpha'}}`).
+
+    For attributes — `name={...}` — we try to recover the value if it's a
+    JSX literal we can preserve (numeric, string literal, generateId call,
+    template literal that wraps a generateId). If we can, we rewrite the
+    attribute as `name="<recovered>"`. Otherwise we drop the whole
+    attribute (the conservative default).
+
+    For non-attribute braces (top-level JSX expressions like
+    `{title ? ... : null}`), we just remove them.
 
     This handles:
       - `{title ? <title id={titleId}>{title}</title> : null}`  → ""
-      - `width={16}`, `height={16}`, `x={1}` → ""
-      - `aria-labelledby={titleId}`            → ""
-      - `style={{maskType: 'alpha'}}`          → ""
-      - `id={generateId('a')}`                 → ""
+      - `width={16}` → `width="16"` (preserved as numeric attribute)
+      - `aria-labelledby={titleId}` → "" (variable, can't recover)
+      - `style={{maskType: 'alpha'}}` → "" (object, can't recover)
+      - `id={generateId('a')}` → `id="a"` (recoverable from EUI's pattern)
+      - fill={`url(#${generateId('a')})`} → fill="url(#a)" (template literal)
 
     What remains is plain XML/SVG with quoted attributes only.
     """
@@ -121,30 +160,31 @@ def _strip_jsx(body: str) -> str:
             continue
 
         if c == "{":
-            # Backtrack through any whitespace + `attr=` so the resulting tag
-            # is well-formed.
+            # Determine whether this brace-expression is an attribute value
+            # (`name={...}`) or a free-standing JSX expression. Look back at
+            # the rendered output for a pending `=` after an attribute name.
             j = len(out) - 1
             while j >= 0 and out[j] in " \t\r\n":
                 j -= 1
-            cut_to = len(out)  # default: keep what we have
+            is_attr_value = False
+            attr_cut_to: int | None = None
             if j >= 0 and out[j] == "=":
-                # Walk backwards over the attribute name and any leading whitespace.
                 k = j - 1
                 while k >= 0 and (out[k].isalnum() or out[k] in "-_:"):
                     k -= 1
                 while k >= 0 and out[k] in " \t\r\n":
                     k -= 1
-                cut_to = k + 1
-            # Truncate the output to drop the attribute (if present).
-            del out[cut_to:]
+                attr_cut_to = k + 1  # truncate-to-here if we end up dropping
+                is_attr_value = True
 
-            # Now skip the {...} block, including nested braces.
+            # Capture the brace contents (handling nested braces and string
+            # literals inside).
             depth = 1
+            start = i + 1
             i += 1
             while i < n and depth > 0:
                 ch = body[i]
                 if ch == '"' or ch == "'":
-                    # Skip over string literals inside the JSX block.
                     qq = ch
                     i += 1
                     while i < n and body[i] != qq:
@@ -160,6 +200,22 @@ def _strip_jsx(body: str) -> str:
                 elif ch == "}":
                     depth -= 1
                 i += 1
+            inner_body = body[start : i - 1] if depth == 0 else ""
+
+            if is_attr_value:
+                recovered = _try_recover_jsx_literal(inner_body)
+                if recovered is not None:
+                    # Rewrite as a quoted attribute value: drop the trailing
+                    # whitespace/`=` we kept, then re-emit `="<recovered>"`.
+                    # We keep the `=` (it's at out[j]) and just append the quoted value.
+                    out.append('"')
+                    out.append(recovered.replace('"', "&quot;"))
+                    out.append('"')
+                else:
+                    # Couldn't recover — drop the whole attribute, including
+                    # the leading whitespace before its name.
+                    del out[attr_cut_to:]
+            # Non-attribute brace expressions (free-standing JSX) are silently dropped.
             continue
 
         out.append(c)
@@ -201,10 +257,17 @@ def _normalize_attr_names(body: str) -> str:
 
 
 def to_inline_svg(extracted: ExtractedSvg) -> str:
-    """Wrap the extracted inner content in a clean self-contained <svg>."""
+    """Wrap the extracted inner content in a clean self-contained <svg>.
+
+    Includes the xlink namespace declaration because some EUI logos use
+    xlink:href (recovered from JSX `xlinkHref={...}`) and resvg refuses
+    to render unknown-prefix attributes.
+    """
     vbx, vby, vbw, vbh = extracted.viewbox
     return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vbx} {vby} {vbw} {vbh}">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" '
+        f'xmlns:xlink="http://www.w3.org/1999/xlink" '
+        f'viewBox="{vbx} {vby} {vbw} {vbh}">'
         f"{extracted.inner}"
         f"</svg>"
     )

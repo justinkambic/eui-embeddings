@@ -83,7 +83,9 @@ def rasterize_glyph(svg_text: str, *, size: int = DEFAULT_PNG_SIZE) -> bytes:
     # We force the inner fill to a default black (in case currentColor isn't
     # honored by resvg in some edge cases) by wrapping in a <g fill="black">.
     svg = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vbx} {vby} {vbw} {vbh}" '
+        f'<svg xmlns="http://www.w3.org/2000/svg" '
+        f'xmlns:xlink="http://www.w3.org/1999/xlink" '
+        f'viewBox="{vbx} {vby} {vbw} {vbh}" '
         f'width="{size}" height="{size}">'
         f'<rect x="{vbx}" y="{vby}" width="{vbw}" height="{vbh}" fill="white"/>'
         f'<g fill="black">{inner}</g>'

@@ -217,3 +217,4 @@ data/rendered_images/
 # ~/.cache/torch/sentence_transformers/
 
 ingester/state/
+reports/
