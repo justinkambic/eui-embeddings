@@ -9,7 +9,7 @@
 
 source "$(dirname "$0")/_lib.sh"
 
-SMOKE_DOC_ID="__smoke@__@glyph"
+SMOKE_DOC_ID="__smoke@__"
 QUERY="search icon"
 
 log "embedding query via $INFERENCE_ID"
@@ -28,8 +28,6 @@ print(json.dumps({
   'prop_name': '__smoke',
   'release_tag': '__',
   'release_major': 0,
-  'kind': 'glyph',
-  'tokenized': False,
   'image_vector': vec,
   'name_vector': vec,
 }))

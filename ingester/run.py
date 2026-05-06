@@ -4,13 +4,10 @@ Entry point: `python -m ingester run --version v115.0.0`.
 
 Flow:
 1. Open/clone EUI under .cache/eui, fetch tags, checkout the requested tag.
-2. Parse typeToPathMap and TOKEN_MAP for that version.
-3. For each entry, build a "render plan":
-     - glyph doc per IconEntry
-     - token doc per TokenEntry (uses the asset_filename from typeToPathMap)
+2. Parse typeToPathMap for that version (one entry per <EuiIcon type=...> name).
+3. Build a render plan per entry — one doc per (prop_name, release_tag).
 4. Skip plans whose doc id already exists.
-5. Rasterize PNGs (sequential — resvg is fast enough that contention isn't the
-   bottleneck; the bottleneck is _inference latency).
+5. Rasterize the bare SVG to a deterministic black-on-white PNG.
 6. Batch-embed PNGs and prop names via _inference (concurrent, bounded).
 7. Bulk-index in batches of N.
 """
@@ -33,8 +30,8 @@ from dotenv import load_dotenv
 from .es_client import EsClient, EsConfig
 from .eui_repo import EuiRepo, DEFAULT_LOCATION, DEFAULT_REPO_URL
 from .extract_svg import extract_from_tsx, to_inline_svg
-from .parse_maps import IconEntry, TokenEntry, parse_repo
-from .raster import rasterize_glyph, rasterize_token, resolve_chrome
+from .parse_maps import IconEntry, parse_repo
+from .raster import rasterize_glyph
 from .util import doc_id, humanize_prop, major_from_tag
 
 
@@ -49,23 +46,13 @@ class RenderPlan:
     prop_name: str
     asset_filename: str
     asset_path: Path
-    kind: str                         # "glyph" or "token"
-    tokenized: bool                   # True if this prop also has a TOKEN_MAP entry
-    chrome: dict | None = None        # populated for kind="token"
 
     def doc_id(self, release_tag: str) -> str:
-        return doc_id(self.prop_name, release_tag, self.kind)
+        return doc_id(self.prop_name, release_tag)
 
 
-def build_plans(
-    icons: list[IconEntry],
-    tokens: list[TokenEntry],
-    assets_dir: Path,
-) -> list[RenderPlan]:
-    by_name = {i.prop_name: i for i in icons}
-    token_props = {t.prop_name for t in tokens}
+def build_plans(icons: list[IconEntry], assets_dir: Path) -> list[RenderPlan]:
     plans: list[RenderPlan] = []
-
     for ic in icons:
         asset_path = assets_dir / f"{ic.asset_filename}.tsx"
         if not asset_path.exists():
@@ -76,31 +63,6 @@ def build_plans(
                 prop_name=ic.prop_name,
                 asset_filename=ic.asset_filename,
                 asset_path=asset_path,
-                kind="glyph",
-                tokenized=ic.prop_name in token_props,
-            )
-        )
-
-    for tk in tokens:
-        ic = by_name.get(tk.prop_name)
-        if ic is None:
-            log.warning("token %s not found in typeToPathMap; skipping chromed render", tk.prop_name)
-            continue
-        asset_path = assets_dir / f"{ic.asset_filename}.tsx"
-        if not asset_path.exists():
-            log.warning("token asset missing for %s expected=%s", tk.prop_name, asset_path)
-            continue
-        plans.append(
-            RenderPlan(
-                prop_name=tk.prop_name,
-                asset_filename=ic.asset_filename,
-                asset_path=asset_path,
-                kind="token",
-                tokenized=True,
-                chrome={
-                    "shape": tk.shape,
-                    "color_token": tk.color,
-                },
             )
         )
     return plans
@@ -112,22 +74,12 @@ def build_plans(
 def render_png(plan: RenderPlan) -> bytes:
     tsx = plan.asset_path.read_text(encoding="utf-8")
     inline = to_inline_svg(extract_from_tsx(tsx))
-    if plan.kind == "glyph":
-        return rasterize_glyph(inline)
-    if plan.kind == "token":
-        assert plan.chrome is not None
-        chrome = resolve_chrome(plan.chrome["color_token"], plan.chrome["shape"])
-        return rasterize_token(inline, chrome)
-    raise ValueError(f"unknown kind: {plan.kind}")
+    return rasterize_glyph(inline)
 
 
 def text_for_plan(plan: RenderPlan) -> str:
     """Synthesize the text input we embed into name_vector."""
-    base = humanize_prop(plan.prop_name)
-    # Tag the kind so the text vector also carries that signal.
-    if plan.kind == "token":
-        return f"{base} token icon"
-    return f"{base} icon"
+    return f"{humanize_prop(plan.prop_name)} icon"
 
 
 # --- embedding + indexing ---------------------------------------------------
@@ -186,12 +138,10 @@ async def ingest_version(
     repo.checkout(version)
     released_at = repo.commit_date(version)
 
-    icons, tokens, paths = parse_repo(repo.location)
-    log.info(
-        "%s: layout=%s, icons=%d, tokens=%d", version, paths.layout, len(icons), len(tokens)
-    )
+    icons, _tokens, paths = parse_repo(repo.location)
+    log.info("%s: layout=%s, icons=%d", version, paths.layout, len(icons))
 
-    plans = build_plans(icons, tokens, repo.assets_dir())
+    plans = build_plans(icons, repo.assets_dir())
     if limit is not None:
         plans = plans[:limit]
     stats.plans_total = len(plans)
@@ -217,7 +167,7 @@ async def ingest_version(
             rendered.append((p, render_png(p)))
         except Exception as e:
             stats.plans_render_failed += 1
-            msg = f"{p.prop_name} ({p.kind}, {p.asset_filename}.tsx): {type(e).__name__}: {e}"
+            msg = f"{p.prop_name} ({p.asset_filename}.tsx): {type(e).__name__}: {e}"
             stats.render_errors.append(msg)
             log.warning("render failed: %s", msg)
     if not rendered:
@@ -243,22 +193,11 @@ async def ingest_version(
             "release_tag": version,
             "release_major": release_major,
             "released_at": released_at,
-            "kind": plan.kind,
-            "tokenized": plan.tokenized,
             "asset_filename": plan.asset_filename,
             "asset_path": str(plan.asset_path.relative_to(repo.location)),
             "image_vector": iv,
             "name_vector": nv,
         }
-        if plan.chrome is not None:
-            from .palette import resolve as resolve_color_hex
-
-            source["chrome"] = {
-                "shape": plan.chrome["shape"],
-                "color_token": plan.chrome["color_token"],
-                "color_hex": resolve_color_hex(plan.chrome["color_token"]),
-                "fill_style": plan.chrome.get("fill_style", "light"),
-            }
         docs.append((plan.doc_id(version), source))
 
     log.info("bulk-indexing %d docs (bulk_size=%d)", len(docs), bulk_size)

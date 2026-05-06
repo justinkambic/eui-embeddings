@@ -32,6 +32,6 @@ def major_from_tag(tag: str) -> int:
     return int(m.group(1))
 
 
-def doc_id(prop_name: str, release_tag: str, kind: str) -> str:
-    """Canonical doc id used in eui_icons. Kind ∈ {'glyph', 'token'}."""
-    return f"{prop_name}@{release_tag}#{kind}"
+def doc_id(prop_name: str, release_tag: str) -> str:
+    """Canonical doc id used in eui_icons. One doc per (prop_name, release_tag)."""
+    return f"{prop_name}@{release_tag}"
