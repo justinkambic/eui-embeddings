@@ -74,24 +74,129 @@ def extract_from_tsx(tsx_text: str) -> ExtractedSvg:
     else:
         vb = (0.0, 0.0, 16.0, 16.0)
 
-    # Strip JSX
-    cleaned = _strip_jsx(inner)
+    # Strip JSX, then normalize JSX-style attribute names to SVG kebab-case.
+    cleaned = _normalize_attr_names(_strip_jsx(inner))
     return ExtractedSvg(inner=cleaned.strip(), viewbox=vb)
 
 
 def _strip_jsx(body: str) -> str:
-    # Multi-line title conditional first (most fragile pattern).
-    body = re.sub(
-        r"\{title\s*\?\s*<title[^>]*>\{title\}</title>\s*:\s*null\}",
-        "",
-        body,
-        flags=re.DOTALL,
-    )
-    # Pure JSX expression lines: `  {something}`
-    body = _JSX_LINE_RE.sub("", body)
-    # JSX attributes inside child element opening tags: `id={titleId}`,
-    # `aria-labelledby={titleId}`, etc.
-    body = _INNER_JSX_ATTR_RE.sub("", body)
+    """Brace-aware JSX stripper.
+
+    Walks characters; outside of string literals, when we see `{`, we find
+    the matching `}` (handling nesting like `style={{maskType:'alpha'}}`)
+    and remove everything from the opening brace through the close. If the
+    `{` was preceded by `name=`, we also remove the attribute name and the
+    `=` so the resulting tag remains valid.
+
+    This handles:
+      - `{title ? <title id={titleId}>{title}</title> : null}`  → ""
+      - `width={16}`, `height={16}`, `x={1}` → ""
+      - `aria-labelledby={titleId}`            → ""
+      - `style={{maskType: 'alpha'}}`          → ""
+      - `id={generateId('a')}`                 → ""
+
+    What remains is plain XML/SVG with quoted attributes only.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(body)
+    while i < n:
+        c = body[i]
+        # Skip over string literals so we don't misread `{` inside attribute values.
+        if c == '"' or c == "'":
+            quote = c
+            out.append(c)
+            i += 1
+            while i < n:
+                if body[i] == "\\" and i + 1 < n:
+                    out.append(body[i])
+                    out.append(body[i + 1])
+                    i += 2
+                    continue
+                out.append(body[i])
+                if body[i] == quote:
+                    i += 1
+                    break
+                i += 1
+            continue
+
+        if c == "{":
+            # Backtrack through any whitespace + `attr=` so the resulting tag
+            # is well-formed.
+            j = len(out) - 1
+            while j >= 0 and out[j] in " \t\r\n":
+                j -= 1
+            cut_to = len(out)  # default: keep what we have
+            if j >= 0 and out[j] == "=":
+                # Walk backwards over the attribute name and any leading whitespace.
+                k = j - 1
+                while k >= 0 and (out[k].isalnum() or out[k] in "-_:"):
+                    k -= 1
+                while k >= 0 and out[k] in " \t\r\n":
+                    k -= 1
+                cut_to = k + 1
+            # Truncate the output to drop the attribute (if present).
+            del out[cut_to:]
+
+            # Now skip the {...} block, including nested braces.
+            depth = 1
+            i += 1
+            while i < n and depth > 0:
+                ch = body[i]
+                if ch == '"' or ch == "'":
+                    # Skip over string literals inside the JSX block.
+                    qq = ch
+                    i += 1
+                    while i < n and body[i] != qq:
+                        if body[i] == "\\" and i + 1 < n:
+                            i += 2
+                            continue
+                        i += 1
+                    if i < n:
+                        i += 1
+                    continue
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                i += 1
+            continue
+
+        out.append(c)
+        i += 1
+
+    return "".join(out)
+
+
+# JSX uses camelCase for SVG attributes; SVG itself wants kebab-case for some.
+# Map the ones EUI actually uses.
+_JSX_TO_SVG_ATTR = {
+    "fillRule": "fill-rule",
+    "clipRule": "clip-rule",
+    "fillOpacity": "fill-opacity",
+    "strokeWidth": "stroke-width",
+    "strokeLinecap": "stroke-linecap",
+    "strokeLinejoin": "stroke-linejoin",
+    "strokeOpacity": "stroke-opacity",
+    "strokeDasharray": "stroke-dasharray",
+    "stopColor": "stop-color",
+    "stopOpacity": "stop-opacity",
+    "textAnchor": "text-anchor",
+    "vectorEffect": "vector-effect",
+    "maskUnits": "maskUnits",       # already camelCase in SVG too
+    "gradientUnits": "gradientUnits",
+    "patternUnits": "patternUnits",
+    "preserveAspectRatio": "preserveAspectRatio",
+    "xmlnsXlink": "xmlns:xlink",
+    "xlinkHref": "xlink:href",
+}
+
+
+def _normalize_attr_names(body: str) -> str:
+    for camel, kebab in _JSX_TO_SVG_ATTR.items():
+        if camel == kebab:
+            continue
+        body = re.sub(rf"\b{re.escape(camel)}\b", kebab, body)
     return body
 
 
