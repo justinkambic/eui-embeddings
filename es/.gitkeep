@@ -1,4 +1,0 @@
-# Phase 2 fills this directory with:
-#   00_create_inference.sh — PUT _inference/embedding/eui-icon-encoder
-#   01_create_index.sh     — PUT eui_icons (with the mapping in revamp-plan.md §3.1)
-#   02_smoke.sh            — index a fake doc, run a kNN, assert a hit

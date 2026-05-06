@@ -1,0 +1,41 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "properties": {
+      "prop_name":      { "type": "keyword" },
+      "release_tag":    { "type": "keyword" },
+      "release_major":  { "type": "short" },
+      "released_at":    { "type": "date" },
+      "kind":           { "type": "keyword" },
+      "tokenized":      { "type": "boolean" },
+      "asset_filename": { "type": "keyword" },
+      "asset_path":     { "type": "keyword", "doc_values": false },
+      "svg_source":     { "type": "text", "index": false },
+      "description":    { "type": "text" },
+      "tags":           { "type": "keyword" },
+      "chrome": {
+        "properties": {
+          "shape":       { "type": "keyword" },
+          "color_token": { "type": "keyword" },
+          "color_hex":   { "type": "keyword" },
+          "fill_style":  { "type": "keyword" }
+        }
+      },
+      "image_vector": {
+        "type": "dense_vector",
+        "dims": 1024,
+        "index": true,
+        "similarity": "cosine"
+      },
+      "name_vector": {
+        "type": "dense_vector",
+        "dims": 1024,
+        "index": true,
+        "similarity": "cosine"
+      }
+    }
+  }
+}
