@@ -1,0 +1,23 @@
+# Phase 1 scaffold. Phase 3 fills in the ingester service.
+# Elasticsearch is intentionally absent — we point at Elastic Cloud
+# via ELASTICSEARCH_ENDPOINT in .env.
+
+services:
+  ingester:
+    # Built locally from ingester/Dockerfile (lands in Phase 3).
+    build:
+      context: ./ingester
+      dockerfile: Dockerfile
+    container_name: eui-embeddings-ingester
+    profiles: [ingester]   # opt-in: `docker compose --profile ingester up ingester`
+    environment:
+      - ELASTICSEARCH_ENDPOINT
+      - ELASTICSEARCH_VECTOR_DB_API_KEY
+      - EUI_REPO
+      - OTEL_EXPORTER_OTLP_ENDPOINT
+      - OTEL_SERVICE_NAME
+    volumes:
+      - ./.cache:/app/.cache
+      - ./ingester/state:/app/ingester/state
+    command: ["run", "--help"]
+    restart: "no"
