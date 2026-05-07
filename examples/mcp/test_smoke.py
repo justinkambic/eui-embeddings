@@ -78,8 +78,19 @@ async def run_smoke() -> int:
                 {"image_path": str(search_png), "limit": 3, "version": "v115.0.0"},
             )
             text = "\n".join(c.text for c in res.content if hasattr(c, "text"))
+            images = [c for c in res.content if getattr(c, "type", None) == "image"]
             print(f"[icon_search image_path=search.png]:\n{text}\n")
+            print(f"  inline preview images returned: {len(images)}")
             assert "search" in text.lower(), "expected 'search' to appear in matches"
+            assert len(images) >= 1, (
+                "expected at least one ImageContent block (inline preview) in response"
+            )
+            assert all(getattr(c, "mimeType", None) == "image/png" for c in images), (
+                "preview images should be PNG"
+            )
+            assert "Browse all icons" in text, (
+                "expected docs link in summary"
+            )
 
             # 5. icon_search by image_base64 (legacy path, still supported).
             b64 = base64.b64encode(search_png.read_bytes()).decode()

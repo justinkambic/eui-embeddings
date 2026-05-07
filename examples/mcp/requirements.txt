@@ -4,3 +4,7 @@
 
 mcp>=1.2.0
 httpx>=0.27.0
+
+# Used to render preview PNGs of result icons inline in the MCP response.
+# Pulled directly from .cache/eui via the ingester's raster module.
+resvg-py>=0.0.4
