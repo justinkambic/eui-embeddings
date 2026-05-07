@@ -101,12 +101,15 @@ async def _knn_search(
     data = r.json()
     return [
         {
+            "_id": h["_id"],
             "prop_name": h["_source"]["prop_name"],
             "asset_filename": h["_source"].get("asset_filename"),
             "score": h["_score"],
         }
         for h in data["hits"]["hits"]
     ]
+
+
 
 
 async def process_icon(
