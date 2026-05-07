@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
+import io
 import json
 import logging
 import os
@@ -112,6 +114,75 @@ async def _knn_search(
 
 
 
+def _normalize_for_query(png: bytes, size: int = 256) -> bytes:
+    """Python (Pillow) equivalent of the sidecar's `normalizeQueryImage`.
+
+    The icon-search-server pre-processes user-pasted images via Sharp:
+    `flatten({background:'#ffffff'}).resize(256, 256, {fit:'contain',
+    background:'#ffffff', kernel:'lanczos3'})`. This function mirrors
+    that so the sweep query path matches the production query path.
+
+    Lanczos and exact pixel values won't be byte-identical with Sharp,
+    but the high-level behavior (composite alpha onto white, fit-
+    contain into 256x256 with white letterbox, lanczos resample) is
+    the same — close enough that the resulting embeddings cluster the
+    same way.
+    """
+    from PIL import Image
+
+    im = Image.open(io.BytesIO(png))
+    # Step 1: composite onto white if any alpha channel.
+    if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+        rgba = im.convert("RGBA")
+        bg = Image.new("RGB", rgba.size, (255, 255, 255))
+        bg.paste(rgba, mask=rgba.split()[-1])
+        im = bg
+    else:
+        im = im.convert("RGB")
+    # Step 2: fit-contain into size×size, lanczos.
+    im.thumbnail((size, size), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGB", (size, size), (255, 255, 255))
+    canvas.paste(im, ((size - im.width) // 2, (size - im.height) // 2))
+    out = io.BytesIO()
+    canvas.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+async def _sidecar_search(
+    http: httpx.AsyncClient,
+    sidecar_url: str,
+    png: bytes,
+    version: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Run the sidecar's /api/icon-search end-to-end.
+
+    Going through the sidecar (instead of calling ES `_inference`
+    directly with raw PNG bytes) routes the query through the same
+    Sharp `flatten + resize-fit-contain` normalization the real UI
+    uses. Without this, the test sees a different embedding than
+    production, and the recorded ranks are noise.
+    """
+    body = {
+        "limit": limit,
+        "version": version,
+        "query": {"image": base64.b64encode(png).decode("ascii")},
+    }
+    r = await http.post(f"{sidecar_url.rstrip('/')}/api/icon-search", json=body)
+    r.raise_for_status()
+    hits = r.json().get("hits") or []
+    # Match the shape `_knn_search` returns so downstream code is shared.
+    return [
+        {
+            "_id": None,
+            "prop_name": h["prop_name"],
+            "asset_filename": h.get("asset_filename"),
+            "score": h["score"],
+        }
+        for h in hits
+    ]
+
+
 async def process_icon(
     *,
     prop_name: str,
@@ -124,6 +195,8 @@ async def process_icon(
     embed_sem: asyncio.Semaphore,
     knn_sem: asyncio.Semaphore,
     png_dir: Path | None = None,
+    sidecar_url: str | None = None,
+    normalize: bool = False,
 ) -> IconResult:
     aliases = [p for p in asset_to_props.get(asset_filename, []) if p != prop_name]
     try:
@@ -158,23 +231,35 @@ async def process_icon(
             inline = to_inline_svg(extract_from_tsx(tsx))
             png = rasterize_glyph(inline)
 
-        async with embed_sem:
-            vecs = await es.embed_pngs([png])
-        if not vecs:
-            return IconResult(prop_name, asset_filename, -1, None, None, None, None,
-                              aliases_for_this_asset=aliases, error="no embedding returned")
+        if sidecar_url is not None:
+            # Real-user path: sidecar runs Sharp normalize before
+            # embedding. We share the embed_sem to keep concurrency
+            # bounded.
+            async with embed_sem:
+                hits = await _sidecar_search(http, sidecar_url, png, version, limit=50)
+        else:
+            if normalize:
+                # Mirror the sidecar's Sharp normalize so the embedding
+                # input matches what real users hit. Otherwise the test
+                # is bit-for-bit faithful to a query mode no one runs.
+                png = _normalize_for_query(png)
+            async with embed_sem:
+                vecs = await es.embed_pngs([png])
+            if not vecs:
+                return IconResult(prop_name, asset_filename, -1, None, None, None, None,
+                                  aliases_for_this_asset=aliases, error="no embedding returned")
 
-        async with knn_sem:
-            hits = await _knn_search(
-                http,
-                es.cfg.endpoint,
-                es.cfg.api_key,
-                es.cfg.index_name,
-                "image_vector",
-                vecs[0],
-                version,
-                k=50,
-            )
+            async with knn_sem:
+                hits = await _knn_search(
+                    http,
+                    es.cfg.endpoint,
+                    es.cfg.api_key,
+                    es.cfg.index_name,
+                    "image_vector",
+                    vecs[0],
+                    version,
+                    k=50,
+                )
 
         # Find the rank of any doc whose asset_filename matches ours
         # (alias-aware matching).
@@ -334,7 +419,13 @@ def write_reports(results: list[IconResult], version: str, out_dir: Path) -> Non
 # --- main -------------------------------------------------------------------
 
 
-async def run(version: str, limit: int | None, png_dir: Path | None = None) -> int:
+async def run(
+    version: str,
+    limit: int | None,
+    png_dir: Path | None = None,
+    sidecar_url: str | None = None,
+    normalize: bool = False,
+) -> int:
     cfg = EsConfig(
         endpoint=os.environ["ELASTICSEARCH_ENDPOINT"],
         api_key=os.environ["ELASTICSEARCH_VECTOR_DB_API_KEY"],
@@ -382,6 +473,8 @@ async def run(version: str, limit: int | None, png_dir: Path | None = None) -> i
                     embed_sem=embed_sem,
                     knn_sem=knn_sem,
                     png_dir=png_dir,
+                    sidecar_url=sidecar_url,
+                    normalize=normalize,
                 )
                 for (p, a, path) in plans
             ]
@@ -436,6 +529,34 @@ def main() -> int:
             "self-paste sweep)."
         ),
     )
+    parser.add_argument(
+        "--normalize",
+        action="store_true",
+        help=(
+            "Pre-normalize each PNG with the Pillow equivalent of the "
+            "sidecar's Sharp pipeline (flatten alpha onto white, fit-"
+            "contain into 256x256, lanczos) before sending to ES. Use "
+            "this with --png-dir to make the test path match what real "
+            "users hit. Without it, the sweep sends raw PNG bytes to "
+            "ES, which inflates accuracy."
+        ),
+    )
+    parser.add_argument(
+        "--via-sidecar",
+        nargs="?",
+        const="http://127.0.0.1:4555",
+        default=None,
+        metavar="URL",
+        help=(
+            "Route embedding + kNN through the icon-search-server "
+            "sidecar at URL (default http://127.0.0.1:4555). This is "
+            "the path real users hit, so the sweep result reflects "
+            "actual end-to-end accuracy including the Sharp normalize "
+            "step. Without this flag we send raw PNGs straight to ES, "
+            "which inflates accuracy because the index was built on "
+            "the same raw bytes."
+        ),
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -449,7 +570,15 @@ def main() -> int:
     if png_dir is not None and not png_dir.is_dir():
         log.error("--png-dir does not exist or is not a directory: %s", png_dir)
         return 2
-    return asyncio.run(run(args.version, args.limit, png_dir=png_dir))
+    return asyncio.run(
+        run(
+            args.version,
+            args.limit,
+            png_dir=png_dir,
+            sidecar_url=args.via_sidecar,
+            normalize=args.normalize,
+        )
+    )
 
 
 if __name__ == "__main__":

@@ -81,17 +81,37 @@ async def render(docs_url: str, out_dir: Path, limit: int | None) -> int:
             cell = page.locator(f'[id="{cell_id}"]')
             await cell.scroll_into_view_if_needed()
 
-            # Screenshot just the <svg> child, not the panel — we don't
-            # want the prop name text leaking visual cues into the
-            # embedding. Fall back to the panel if no svg is found
-            # (shouldn't happen for indexed assets, but guard anyway).
+            # Capture the SVG, but with white padding around it.
+            #
+            # Capturing the bare <svg> bounding box ranks differently
+            # than what real users paste: a manual screenshot always
+            # has whitespace around the icon, and that padding changes
+            # how the icon-search-server's resize-fit-contain step lays
+            # the icon onto the 256x256 input fed to jina-clip-v2.
+            # Empirically, a 50%-padded capture of grokApp produces the
+            # same rank-1 hit as a hand-pasted screenshot, while a
+            # zero-padding capture produces a different (wrong) hit.
             svg = cell.locator("svg").first
-            target = svg if await svg.count() > 0 else cell
+            if await svg.count() == 0:
+                log.warning("skip %s: no <svg> in cell", prop)
+                skipped += 1
+                continue
+            box = await svg.bounding_box()
+            if not box or box["width"] == 0 or box["height"] == 0:
+                log.warning("skip %s: zero-pixel bounding box", prop)
+                skipped += 1
+                continue
+
+            pad = max(box["width"], box["height"]) * 0.5
+            clip = {
+                "x": max(0.0, box["x"] - pad),
+                "y": max(0.0, box["y"] - pad),
+                "width": box["width"] + 2 * pad,
+                "height": box["height"] + 2 * pad,
+            }
 
             try:
-                # `omit_background` leaves transparent pixels intact;
-                # downstream Sharp normalize step flattens to white.
-                buf = await target.screenshot(omit_background=True, type="png")
+                buf = await page.screenshot(clip=clip, type="png")
                 png_path.write_bytes(buf)
                 rendered += 1
             except Exception as e:
