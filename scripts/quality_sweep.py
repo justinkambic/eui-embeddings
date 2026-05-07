@@ -123,12 +123,40 @@ async def process_icon(
     asset_to_props: dict[str, list[str]],
     embed_sem: asyncio.Semaphore,
     knn_sem: asyncio.Semaphore,
+    png_dir: Path | None = None,
 ) -> IconResult:
     aliases = [p for p in asset_to_props.get(asset_filename, []) if p != prop_name]
     try:
-        tsx = asset_path.read_text(encoding="utf-8")
-        inline = to_inline_svg(extract_from_tsx(tsx))
-        png = rasterize_glyph(inline)
+        if png_dir is not None:
+            # Use the pre-rendered (Playwright) PNG so we test against
+            # actual browser-rendered pixels instead of the resvg
+            # round-trip of the same SVG that's already indexed.
+            #
+            # Aliases share an asset, but the docs page typically only
+            # renders one cell per asset. If the prop's own PNG is
+            # missing, fall back to any alias PNG that exists.
+            png_path = png_dir / f"{prop_name}.png"
+            if not png_path.exists():
+                for alias in aliases:
+                    alt = png_dir / f"{alias}.png"
+                    if alt.exists():
+                        png_path = alt
+                        break
+            if not png_path.exists():
+                # Skip rather than error: there's no PNG to test, but
+                # this isn't a code/pipeline failure. Mark with a
+                # distinct sentinel rank so reports can separate
+                # "skipped (no PNG)" from "errored".
+                return IconResult(
+                    prop_name, asset_filename, -2, None, None, None, None,
+                    aliases_for_this_asset=aliases,
+                    error="skipped: no pre-rendered PNG (icon not on docs page)",
+                )
+            png = png_path.read_bytes()
+        else:
+            tsx = asset_path.read_text(encoding="utf-8")
+            inline = to_inline_svg(extract_from_tsx(tsx))
+            png = rasterize_glyph(inline)
 
         async with embed_sem:
             vecs = await es.embed_pngs([png])
@@ -199,11 +227,15 @@ async def process_icon(
 
 def _aggregate(results: list[IconResult]) -> dict[str, Any]:
     n = len(results)
-    errored = sum(1 for r in results if r.error is not None)
+    skipped = sum(1 for r in results if r.rank == -2)
+    errored = sum(1 for r in results if r.error is not None and r.rank != -2)
+    evaluated = n - skipped
     in_topk = lambda k: sum(1 for r in results if r.rank > 0 and r.rank <= k)
-    not_found = sum(1 for r in results if r.rank < 0 and r.error is None)
+    not_found = sum(1 for r in results if r.rank == -1 and r.error is None)
     return {
         "total": n,
+        "skipped": skipped,
+        "evaluated": evaluated,
         "errored": errored,
         "ranked_top_1": in_topk(1),
         "ranked_top_3": in_topk(3),
@@ -217,6 +249,8 @@ def _problem_icons(results: list[IconResult]) -> list[IconResult]:
     """Icons that don't rank top-1 and aren't trivially aliased away."""
     out = []
     for r in results:
+        if r.rank == -2:
+            continue  # skipped (no PNG)
         if r.error is not None:
             continue
         if r.rank == 1:
@@ -258,14 +292,16 @@ def write_reports(results: list[IconResult], version: str, out_dir: Path) -> Non
         "",
         "## Summary",
         "",
-        f"- Total icons tested: **{summary['total']}**",
+        f"- Total icons in index: **{summary['total']}**",
+        f"- Skipped (no PNG to test against): **{summary['skipped']}**",
+        f"- Evaluated: **{summary['evaluated']}**",
         f"- Errored: **{summary['errored']}**",
         f"- Top-1 (correct icon ranks #1): **{summary['ranked_top_1']}** "
-        f"({summary['ranked_top_1'] / max(summary['total'], 1):.1%})",
+        f"({summary['ranked_top_1'] / max(summary['evaluated'], 1):.1%} of evaluated)",
         f"- Top-3: **{summary['ranked_top_3']}** "
-        f"({summary['ranked_top_3'] / max(summary['total'], 1):.1%})",
+        f"({summary['ranked_top_3'] / max(summary['evaluated'], 1):.1%} of evaluated)",
         f"- Top-10: **{summary['ranked_top_10']}** "
-        f"({summary['ranked_top_10'] / max(summary['total'], 1):.1%})",
+        f"({summary['ranked_top_10'] / max(summary['evaluated'], 1):.1%} of evaluated)",
         f"- Not found in top-50: **{summary['not_in_top_50']}**",
         "",
         "## Problem icons (rank > 1, sorted by rank then score gap)",
@@ -285,7 +321,7 @@ def write_reports(results: list[IconResult], version: str, out_dir: Path) -> Non
         "## Errors",
         "",
     ]
-    errs = [r for r in results if r.error]
+    errs = [r for r in results if r.error and r.rank != -2]
     if not errs:
         md_lines.append("_None._")
     else:
@@ -298,7 +334,7 @@ def write_reports(results: list[IconResult], version: str, out_dir: Path) -> Non
 # --- main -------------------------------------------------------------------
 
 
-async def run(version: str, limit: int | None) -> int:
+async def run(version: str, limit: int | None, png_dir: Path | None = None) -> int:
     cfg = EsConfig(
         endpoint=os.environ["ELASTICSEARCH_ENDPOINT"],
         api_key=os.environ["ELASTICSEARCH_VECTOR_DB_API_KEY"],
@@ -345,6 +381,7 @@ async def run(version: str, limit: int | None) -> int:
                     asset_to_props=asset_to_props,
                     embed_sem=embed_sem,
                     knn_sem=knn_sem,
+                    png_dir=png_dir,
                 )
                 for (p, a, path) in plans
             ]
@@ -371,12 +408,15 @@ async def run(version: str, limit: int | None) -> int:
     log.info("wrote report to %s", out_dir)
 
     s = _aggregate(results)
+    base = max(s["evaluated"], 1)
     print()
     print(f"=== Quality sweep summary ({version}) ===")
-    print(f"  total: {s['total']}")
-    print(f"  top-1: {s['ranked_top_1']} ({s['ranked_top_1'] / max(s['total'], 1):.1%})")
-    print(f"  top-3: {s['ranked_top_3']} ({s['ranked_top_3'] / max(s['total'], 1):.1%})")
-    print(f"  top-10: {s['ranked_top_10']} ({s['ranked_top_10'] / max(s['total'], 1):.1%})")
+    print(f"  total in index: {s['total']}")
+    print(f"  skipped (no PNG): {s['skipped']}")
+    print(f"  evaluated: {s['evaluated']}")
+    print(f"  top-1: {s['ranked_top_1']} ({s['ranked_top_1'] / base:.1%})")
+    print(f"  top-3: {s['ranked_top_3']} ({s['ranked_top_3'] / base:.1%})")
+    print(f"  top-10: {s['ranked_top_10']} ({s['ranked_top_10'] / base:.1%})")
     print(f"  errored: {s['errored']}")
     print(f"  report: {out_dir}/report.md")
     return 0 if s["errored"] == 0 else 1
@@ -386,6 +426,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Self-paste quality sweep over a single EUI version")
     parser.add_argument("--version", default="v115.0.0", help="EUI tag to sweep (default v115.0.0)")
     parser.add_argument("--limit", type=int, default=None, help="cap to N icons (for testing)")
+    parser.add_argument(
+        "--png-dir",
+        default=None,
+        help=(
+            "directory of <propName>.png files to use as the query "
+            "image (e.g. reports/playwright_pngs_v115.0.0). When unset, "
+            "rasterizes the canonical SVG via resvg (the original "
+            "self-paste sweep)."
+        ),
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -395,7 +445,11 @@ def main() -> int:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("ingester").setLevel(logging.WARNING)
 
-    return asyncio.run(run(args.version, args.limit))
+    png_dir = Path(args.png_dir) if args.png_dir else None
+    if png_dir is not None and not png_dir.is_dir():
+        log.error("--png-dir does not exist or is not a directory: %s", png_dir)
+        return 2
+    return asyncio.run(run(args.version, args.limit, png_dir=png_dir))
 
 
 if __name__ == "__main__":
