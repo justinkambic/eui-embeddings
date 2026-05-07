@@ -64,7 +64,12 @@ def _format_hits_text(hits: list[dict[str, Any]]) -> str:
     if not hits:
         return "No matching icons found."
     lines = [
-        f"Top {len(hits)} matches (click the link to see the icon rendered in EUI's docs):",
+        f"Top {len(hits)} candidates (scores are cosine similarity; "
+        f"click `view` to see each rendered in EUI's docs):",
+        "",
+        "Note: in dense visual neighborhoods (ML icons, app glyphs, logos) "
+        "the score gap between #1 and #10 is often <0.02 — present the "
+        "full list to the user rather than committing to the top hit.",
         "",
         "| # | prop | score | version | preview | aliases |",
         "|---|---|---|---|---|---|",
@@ -79,9 +84,6 @@ def _format_hits_text(hits: list[dict[str, Any]]) -> str:
             f"| {i} | `{prop}` | {score:.3f} | {version} | "
             f"[view]({_docs_link(prop)}) | {alias_cell} |"
         )
-    lines.append("")
-    lines.append(f'Best match: `<EuiIcon type="{hits[0]["prop_name"]}" />` '
-                 f'— see it: {_docs_link(hits[0]["prop_name"])}')
     return "\n".join(lines)
 
 
@@ -99,7 +101,7 @@ async def icon_search(
     image_path: str | None = None,
     image_base64: str | None = None,
     version: str | None = None,
-    limit: int = 8,
+    limit: int = 12,
 ) -> str:
     """Search EUI icons by text description or by image.
 
@@ -122,7 +124,10 @@ async def icon_search(
             on disk (rare).
         version: EUI release tag to search against (e.g. "v115.0.0"). When
             omitted, searches across all indexed versions.
-        limit: Number of top hits to return (1..50). Defaults to 8.
+        limit: Number of top hits to return (1..50). Defaults to 12 —
+            jina-clip-v2 produces tightly-clustered scores in dense
+            visual neighborhoods, so a wider list lets the user (or the
+            assistant) spot the right answer beyond the literal top-1.
     """
     provided = [n for n in (text, image_path, image_base64) if n]
     if len(provided) == 0:
