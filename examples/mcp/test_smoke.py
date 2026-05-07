@@ -82,14 +82,15 @@ async def run_smoke() -> int:
             print(f"[icon_search image_path=search.png]:\n{text}\n")
             print(f"  inline preview images returned: {len(images)}")
             assert "search" in text.lower(), "expected 'search' to appear in matches"
-            assert len(images) >= 1, (
-                "expected at least one ImageContent block (inline preview) in response"
+            assert len(images) == 0, (
+                "MCP responses should be text-only; image previews removed in favor "
+                "of links to the docs page"
             )
-            assert all(getattr(c, "mimeType", None) == "image/png" for c in images), (
-                "preview images should be PNG"
+            assert "#icon-" in text, (
+                "expected per-icon docs anchor links in the response"
             )
-            assert "Browse all icons" in text, (
-                "expected docs link in summary"
+            assert "[view](" in text, (
+                "expected markdown links to the docs page"
             )
 
             # 5. icon_search by image_base64 (legacy path, still supported).
