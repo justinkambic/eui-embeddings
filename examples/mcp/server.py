@@ -25,12 +25,19 @@ key and applies rate limits.
 
 from __future__ import annotations
 
+import base64
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+
+
+# 5 MB to match the sidecar's body cap. Anything larger is almost certainly
+# not an icon screenshot anyway.
+_MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 BASE_URL = os.environ.get("ICON_SEARCH_BASE_URL", "http://127.0.0.1:4555")
 
@@ -64,31 +71,66 @@ def _connection_help(detail: str) -> str:
 @mcp.tool()
 async def icon_search(
     text: str | None = None,
+    image_path: str | None = None,
     image_base64: str | None = None,
     version: str | None = None,
     limit: int = 8,
 ) -> str:
     """Search EUI icons by text description or by image.
 
-    Provide either `text` or `image_base64` (not both). The image must be
-    base64-encoded PNG/JPG/WebP bytes; a `data:image/...;base64,` prefix
-    is OK and will be stripped. Returns a markdown-formatted ranked list
-    with EUI prop names ready to drop into `<EuiIcon type="..." />`.
+    Provide exactly ONE of `text`, `image_path`, or `image_base64`.
+
+    PREFER `image_path` when the image is on disk (e.g. when the user
+    pastes an image into chat — the AI client typically attaches it as a
+    file path). It is more reliable than passing 7-100 KB of base64
+    through tool-call argument serialization, where the bytes can get
+    mangled in transit.
 
     Args:
         text: Free-text description, e.g. "search icon", "warning triangle",
-            "trash can". Used when no image is supplied.
-        image_base64: Base64-encoded image of the icon to find.
+            "trash can".
+        image_path: Absolute or working-directory-relative path to an image
+            file (PNG/JPG/WebP/GIF) to search for. The MCP server reads,
+            base64-encodes, and forwards to the sidecar. 5 MB max.
+        image_base64: Base64-encoded image bytes. A `data:image/...;base64,`
+            prefix is OK. Use this only when the image is not available
+            on disk (rare).
         version: EUI release tag to search against (e.g. "v115.0.0"). When
             omitted, searches across all indexed versions.
         limit: Number of top hits to return (1..50). Defaults to 8.
     """
-    if not text and not image_base64:
-        return "Error: provide either `text` or `image_base64`."
-    if text and image_base64:
-        return "Error: provide only one of `text` or `image_base64`, not both."
+    provided = [n for n in (text, image_path, image_base64) if n]
+    if len(provided) == 0:
+        return "Error: provide one of `text`, `image_path`, or `image_base64`."
+    if len(provided) > 1:
+        return (
+            "Error: provide only ONE of `text`, `image_path`, or `image_base64`, "
+            "not multiple."
+        )
     if limit < 1 or limit > 50:
         return "Error: `limit` must be between 1 and 50."
+
+    # Resolve image_path → image_base64 here, so the wire format to the
+    # sidecar is uniform and we never ship ambiguous arg combinations.
+    if image_path:
+        try:
+            p = Path(image_path).expanduser()
+        except Exception as e:
+            return f"Error: invalid `image_path` ({image_path!r}): {e}"
+        if not p.exists():
+            return f"Error: image_path does not exist: {p}"
+        if not p.is_file():
+            return f"Error: image_path is not a regular file: {p}"
+        size = p.stat().st_size
+        if size > _MAX_IMAGE_BYTES:
+            return (
+                f"Error: image at {p} is {size} bytes; max is {_MAX_IMAGE_BYTES}."
+            )
+        try:
+            data = p.read_bytes()
+        except OSError as e:
+            return f"Error: could not read {p}: {e}"
+        image_base64 = base64.b64encode(data).decode("ascii")
 
     body: dict[str, Any] = {"limit": limit}
     if version:

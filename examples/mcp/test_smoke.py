@@ -60,10 +60,10 @@ async def run_smoke() -> int:
             print(f"[icon_search text='warning triangle']:\n{text}\n")
             assert "warning" in text.lower(), "expected 'warning' to appear in matches"
 
-            # 4. icon_search by image (canonical search.png if available)
+            # 4. icon_search by image_path (the path we expect AI clients
+            #    to use when the user pastes an image into chat).
             search_png = Path("/tmp/indexed_search.png")
             if not search_png.exists():
-                # Generate one on the fly via the ingester's raster
                 sys.path.insert(0, str(HERE.parent.parent))
                 from ingester.extract_svg import extract_from_tsx, to_inline_svg
                 from ingester.raster import rasterize_glyph
@@ -73,20 +73,38 @@ async def run_smoke() -> int:
                 ).read_text()
                 png = rasterize_glyph(to_inline_svg(extract_from_tsx(tsx)))
                 search_png.write_bytes(png)
+            res = await session.call_tool(
+                "icon_search",
+                {"image_path": str(search_png), "limit": 3, "version": "v115.0.0"},
+            )
+            text = "\n".join(c.text for c in res.content if hasattr(c, "text"))
+            print(f"[icon_search image_path=search.png]:\n{text}\n")
+            assert "search" in text.lower(), "expected 'search' to appear in matches"
+
+            # 5. icon_search by image_base64 (legacy path, still supported).
             b64 = base64.b64encode(search_png.read_bytes()).decode()
             res = await session.call_tool(
                 "icon_search",
                 {"image_base64": b64, "limit": 3, "version": "v115.0.0"},
             )
             text = "\n".join(c.text for c in res.content if hasattr(c, "text"))
-            print(f"[icon_search image=search.png]:\n{text}\n")
+            print(f"[icon_search image_base64=search.png]:\n{text}\n")
             assert "search" in text.lower(), "expected 'search' to appear in matches"
 
-            # 5. Validation errors (negative case)
+            # 6. Validation: missing all inputs.
             res = await session.call_tool("icon_search", {})
             text = "\n".join(c.text for c in res.content if hasattr(c, "text"))
             print(f"[icon_search no-args]: {text}")
-            assert "either" in text.lower() and "text" in text.lower(), "expected helpful error"
+            assert "Error" in text, "expected helpful error"
+
+            # 7. Validation: nonexistent path.
+            res = await session.call_tool(
+                "icon_search",
+                {"image_path": "/tmp/__definitely__not__here.png"},
+            )
+            text = "\n".join(c.text for c in res.content if hasattr(c, "text"))
+            print(f"[icon_search bad image_path]: {text}")
+            assert "does not exist" in text, "expected file-not-found error"
 
     print("\n[ok] smoke test passed")
     return 0

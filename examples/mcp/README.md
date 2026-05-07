@@ -62,11 +62,19 @@ Search by text or by image.
 | Argument | Type | Notes |
 |---|---|---|
 | `text` | string? | Description like "search icon" or "warning triangle". |
-| `image_base64` | string? | Base64-encoded image. Data URL prefix OK. |
+| `image_path` | string? | **Preferred for image search.** Path to an image file on disk. |
+| `image_base64` | string? | Base64-encoded image. Use only when the image isn't on disk. |
 | `version` | string? | EUI tag like `v115.0.0`. Default: all versions. |
 | `limit` | int | 1..50, default 8. |
 
-Provide exactly one of `text` or `image_base64`.
+Provide exactly ONE of `text`, `image_path`, or `image_base64`.
+
+**Why `image_path` is preferred:** when a user pastes an image into chat,
+their AI client typically attaches it as a file on disk and surfaces the
+path in the conversation. Passing the path lets this server read the
+bytes locally, which is both faster and more reliable than serializing
+~10 KB of base64 through tool-call argument JSON (where bytes can get
+mangled in transit). `image_base64` still works as a fallback.
 
 Returns a ranked markdown list:
 
