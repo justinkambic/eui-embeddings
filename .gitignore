@@ -218,3 +218,4 @@ data/rendered_images/
 
 ingester/state/
 reports/
+.venv-mcp/

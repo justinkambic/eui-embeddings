@@ -1,0 +1,13 @@
+{
+  "_comment": "Add this block to your Claude Code config (~/.claude.json or ~/.config/claude-code/config.json depending on platform). Replace ABS_PATH with the absolute path to your eui-embeddings checkout.",
+
+  "mcpServers": {
+    "eui-icons": {
+      "command": "/ABS_PATH/eui-embeddings/.venv-mcp/bin/python",
+      "args": ["/ABS_PATH/eui-embeddings/examples/mcp/server.py"],
+      "env": {
+        "ICON_SEARCH_BASE_URL": "http://127.0.0.1:4555"
+      }
+    }
+  }
+}
