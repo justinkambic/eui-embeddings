@@ -251,6 +251,7 @@ async def process_icon(
     all_versions: bool = False,
     mean_vector: list[float] | None = None,
     tta: bool = False,
+    knn_field_override: str | None = None,
 ) -> IconResult:
     aliases = [p for p in asset_to_props.get(asset_filename, []) if p != prop_name]
     try:
@@ -323,7 +324,7 @@ async def process_icon(
             # query vector and kNN against image_vector_centered (which
             # has the same mean subtracted at backfill time). Matches
             # the cosine geometry of mean-centered space.
-            knn_field = "image_vector"
+            knn_field = knn_field_override or "image_vector"
             query_vec = vecs[0]
             if mean_vector is not None:
                 query_vec = [v - m for v, m in zip(query_vec, mean_vector)]
@@ -525,6 +526,7 @@ async def run(
     all_versions: bool = False,
     mean_vector: list[float] | None = None,
     tta: bool = False,
+    knn_field_override: str | None = None,
 ) -> int:
     cfg = EsConfig(
         endpoint=os.environ["ELASTICSEARCH_ENDPOINT"],
@@ -578,6 +580,7 @@ async def run(
                     all_versions=all_versions,
                     mean_vector=mean_vector,
                     tta=tta,
+                    knn_field_override=knn_field_override,
                 )
                 for (p, a, path) in plans
             ]
@@ -642,6 +645,17 @@ def main() -> int:
             "this with --png-dir to make the test path match what real "
             "users hit. Without it, the sweep sends raw PNG bytes to "
             "ES, which inflates accuracy."
+        ),
+    )
+    parser.add_argument(
+        "--knn-field",
+        default=None,
+        help=(
+            "Override the dense_vector field to kNN against. Defaults "
+            "to image_vector. Set to image_vector_aug_centroid to test "
+            "the augmented-centroid index built by "
+            "scripts/build_augmented_centroids.py. Mutually exclusive "
+            "with --mean-center (which forces image_vector_centered)."
         ),
     )
     parser.add_argument(
@@ -732,6 +746,7 @@ def main() -> int:
             all_versions=args.all_versions,
             mean_vector=mean_vector,
             tta=args.tta,
+            knn_field_override=args.knn_field,
         )
     )
 
