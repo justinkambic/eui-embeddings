@@ -199,6 +199,36 @@ def build_deck(out_path: Path) -> None:
         "Return top-12 ranked candidates with cosine scores",
     ])
 
+    # 4b. Architecture diagram
+    arch_png = REPO_ROOT / "reports" / "architecture.png"
+    if arch_png.exists():
+        s = prs.slides.add_slide(BLANK)
+        add_title(s, "System Architecture")
+        # Center the image; preserve aspect ratio. The PNG is taller than
+        # wide (~1683x1847) so we anchor by height to fill the slide
+        # vertically with a small margin.
+        from PIL import Image as _Img  # local import; only needed here
+        with _Img.open(arch_png) as im:
+            w, h = im.size
+        slide_h_in = prs.slide_height / 914400
+        slide_w_in = prs.slide_width / 914400
+        avail_h = slide_h_in - 1.6  # leave room for the title
+        target_h = avail_h
+        target_w = w * (target_h / h)
+        if target_w > slide_w_in - 0.6:
+            target_w = slide_w_in - 0.6
+            target_h = h * (target_w / w)
+        left = (slide_w_in - target_w) / 2
+        top = 1.4 + (avail_h - target_h) / 2
+        s.shapes.add_picture(
+            str(arch_png), Inches(left), Inches(top),
+            Inches(target_w), Inches(target_h),
+        )
+        add_caption(
+            s,
+            "Generated from scripts/architecture.mmd via mermaid-cli — see eui_icon_search_deck.pptx for the full source.",
+        )
+
     # 5. Index coverage
     s = prs.slides.add_slide(BLANK)
     add_title(s, "Index Coverage")
