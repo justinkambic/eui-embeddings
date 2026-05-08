@@ -26,6 +26,12 @@
         "index": true,
         "similarity": "cosine"
       },
+      "image_vector_centered": {
+        "type": "dense_vector",
+        "dims": 1024,
+        "index": true,
+        "similarity": "cosine"
+      },
       "description_vector": {
         "type": "dense_vector",
         "dims": 1024,

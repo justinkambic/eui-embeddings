@@ -209,6 +209,7 @@ async def process_icon(
     sidecar_url: str | None = None,
     normalize: bool = False,
     all_versions: bool = False,
+    mean_vector: list[float] | None = None,
 ) -> IconResult:
     aliases = [p for p in asset_to_props.get(asset_filename, []) if p != prop_name]
     try:
@@ -261,14 +262,24 @@ async def process_icon(
                 return IconResult(prop_name, asset_filename, -1, None, None, None, None,
                                   aliases_for_this_asset=aliases, error="no embedding returned")
 
+            # Mean-centering: subtract the index-wide mean from the
+            # query vector and kNN against image_vector_centered (which
+            # has the same mean subtracted at backfill time). Matches
+            # the cosine geometry of mean-centered space.
+            knn_field = "image_vector"
+            query_vec = vecs[0]
+            if mean_vector is not None:
+                query_vec = [v - m for v, m in zip(query_vec, mean_vector)]
+                knn_field = "image_vector_centered"
+
             async with knn_sem:
                 hits = await _knn_search(
                     http,
                     es.cfg.endpoint,
                     es.cfg.api_key,
                     es.cfg.index_name,
-                    "image_vector",
-                    vecs[0],
+                    knn_field,
+                    query_vec,
                     version,
                     k=50,
                     all_versions=all_versions,
@@ -455,6 +466,7 @@ async def run(
     sidecar_url: str | None = None,
     normalize: bool = False,
     all_versions: bool = False,
+    mean_vector: list[float] | None = None,
 ) -> int:
     cfg = EsConfig(
         endpoint=os.environ["ELASTICSEARCH_ENDPOINT"],
@@ -506,6 +518,7 @@ async def run(
                     sidecar_url=sidecar_url,
                     normalize=normalize,
                     all_versions=all_versions,
+                    mean_vector=mean_vector,
                 )
                 for (p, a, path) in plans
             ]
@@ -573,6 +586,19 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--mean-center",
+        action="store_true",
+        help=(
+            "Subtract the index-wide mean image_vector from both the "
+            "query vector and the indexed vectors (`image_vector_centered` "
+            "field, populated by scripts/compute_mean_center.py). "
+            "Removes the 'this is a 256x256 PNG' direction shared by "
+            "every embedding so similarity scores reflect icon-specific "
+            "differences. Reads the mean from "
+            "vectors/<version>_image_mean.json."
+        ),
+    )
+    parser.add_argument(
         "--all-versions",
         action="store_true",
         help=(
@@ -614,6 +640,18 @@ def main() -> int:
     if png_dir is not None and not png_dir.is_dir():
         log.error("--png-dir does not exist or is not a directory: %s", png_dir)
         return 2
+    mean_vector: list[float] | None = None
+    if args.mean_center:
+        mean_path = REPO_ROOT / "vectors" / f"{args.version}_image_mean.json"
+        if not mean_path.exists():
+            log.error(
+                "--mean-center requires %s; run "
+                "scripts/compute_mean_center.py --version %s first",
+                mean_path, args.version,
+            )
+            return 2
+        mean_vector = json.loads(mean_path.read_text())["mean"]
+
     return asyncio.run(
         run(
             args.version,
@@ -622,6 +660,7 @@ def main() -> int:
             sidecar_url=args.via_sidecar,
             normalize=args.normalize,
             all_versions=args.all_versions,
+            mean_vector=mean_vector,
         )
     )
 
