@@ -125,6 +125,46 @@ async def _knn_search(
 
 
 
+def _tta_variants(png: bytes, size: int = 256) -> list[bytes]:
+    """Generate K padded variants of a query PNG for test-time
+    augmentation. Each variant is a fit-contained 256x256 PNG with a
+    different amount of pre-fit white padding around the icon, so the
+    resize-fit-contain step lays the icon at different scales onto
+    the canvas. Averaging the K embeddings produces a query vector
+    that's more robust to whatever cropping the user happened to
+    paste in.
+    """
+    from PIL import Image, ImageOps
+
+    src = Image.open(io.BytesIO(png))
+    if src.mode in ("RGBA", "LA") or (src.mode == "P" and "transparency" in src.info):
+        rgba = src.convert("RGBA")
+        bg = Image.new("RGB", rgba.size, (255, 255, 255))
+        bg.paste(rgba, mask=rgba.split()[-1])
+        src = bg
+    else:
+        src = src.convert("RGB")
+
+    variants: list[bytes] = []
+    # 0.0 == identity (matches plain --normalize). Other values pad
+    # the input by N% of the larger side before fit-contain, which
+    # shrinks the icon relative to the 256x256 canvas.
+    for pad_frac in (0.0, 0.10, 0.25, 0.50):
+        if pad_frac == 0.0:
+            padded = src
+        else:
+            pad = int(max(src.width, src.height) * pad_frac)
+            padded = ImageOps.expand(src, border=pad, fill=(255, 255, 255))
+        im = padded.copy()
+        im.thumbnail((size, size), Image.Resampling.LANCZOS)
+        canvas = Image.new("RGB", (size, size), (255, 255, 255))
+        canvas.paste(im, ((size - im.width) // 2, (size - im.height) // 2))
+        out = io.BytesIO()
+        canvas.save(out, format="PNG", optimize=True)
+        variants.append(out.getvalue())
+    return variants
+
+
 def _normalize_for_query(png: bytes, size: int = 256) -> bytes:
     """Python (Pillow) equivalent of the sidecar's `normalizeQueryImage`.
 
@@ -210,6 +250,7 @@ async def process_icon(
     normalize: bool = False,
     all_versions: bool = False,
     mean_vector: list[float] | None = None,
+    tta: bool = False,
 ) -> IconResult:
     aliases = [p for p in asset_to_props.get(asset_filename, []) if p != prop_name]
     try:
@@ -251,13 +292,29 @@ async def process_icon(
             async with embed_sem:
                 hits = await _sidecar_search(http, sidecar_url, png, version, limit=50)
         else:
-            if normalize:
-                # Mirror the sidecar's Sharp normalize so the embedding
-                # input matches what real users hit. Otherwise the test
-                # is bit-for-bit faithful to a query mode no one runs.
-                png = _normalize_for_query(png)
-            async with embed_sem:
-                vecs = await es.embed_pngs([png])
+            if tta:
+                # Test-time augmentation: embed K padded variants and
+                # average the resulting vectors. Mutually exclusive
+                # with the bare normalize path because TTA already
+                # produces normalized 256x256 inputs.
+                variants = _tta_variants(png)
+                async with embed_sem:
+                    vecs_list = await es.embed_pngs(variants)
+                if len(vecs_list) != len(variants):
+                    return IconResult(prop_name, asset_filename, -1, None, None, None, None,
+                                      aliases_for_this_asset=aliases,
+                                      error="TTA: missing embeddings")
+                dim = len(vecs_list[0])
+                avg = [sum(v[i] for v in vecs_list) / len(vecs_list) for i in range(dim)]
+                vecs = [avg]
+            else:
+                if normalize:
+                    # Mirror the sidecar's Sharp normalize so the embedding
+                    # input matches what real users hit. Otherwise the test
+                    # is bit-for-bit faithful to a query mode no one runs.
+                    png = _normalize_for_query(png)
+                async with embed_sem:
+                    vecs = await es.embed_pngs([png])
             if not vecs:
                 return IconResult(prop_name, asset_filename, -1, None, None, None, None,
                                   aliases_for_this_asset=aliases, error="no embedding returned")
@@ -467,6 +524,7 @@ async def run(
     normalize: bool = False,
     all_versions: bool = False,
     mean_vector: list[float] | None = None,
+    tta: bool = False,
 ) -> int:
     cfg = EsConfig(
         endpoint=os.environ["ELASTICSEARCH_ENDPOINT"],
@@ -519,6 +577,7 @@ async def run(
                     normalize=normalize,
                     all_versions=all_versions,
                     mean_vector=mean_vector,
+                    tta=tta,
                 )
                 for (p, a, path) in plans
             ]
@@ -583,6 +642,17 @@ def main() -> int:
             "this with --png-dir to make the test path match what real "
             "users hit. Without it, the sweep sends raw PNG bytes to "
             "ES, which inflates accuracy."
+        ),
+    )
+    parser.add_argument(
+        "--tta",
+        action="store_true",
+        help=(
+            "Test-time augmentation: embed K padded variants of each "
+            "query PNG (0/10/25/50%% extra padding) and average the "
+            "resulting vectors before kNN. Costs 4x embed calls per "
+            "query. Implies --normalize (TTA produces already-"
+            "normalized inputs)."
         ),
     )
     parser.add_argument(
@@ -661,6 +731,7 @@ def main() -> int:
             normalize=args.normalize,
             all_versions=args.all_versions,
             mean_vector=mean_vector,
+            tta=args.tta,
         )
     )
 
