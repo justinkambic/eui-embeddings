@@ -60,7 +60,12 @@ def rank_class(r: dict) -> str:
 def rank_label(r: dict) -> str:
     rank = r["rank"]
     if rank == -2:
-        return "skipped"
+        # rebranded from "skipped": these icons are intentionally not
+        # in the test set because they don't render on the docs page
+        # (third-party logos, editor positioning glyphs, deprecation
+        # pair siblings, etc.). They ARE indexed and searchable, just
+        # not measured here.
+        return "off docs"
     if r.get("error"):
         return "error"
     if rank == -1:
@@ -118,7 +123,7 @@ def render_html(report: dict, png_dir: Path, version: str) -> str:
             )
 
         rows.append(
-            f"""<tr class="{cls}">
+            f"""<tr class="{cls}" data-cls="{cls}" data-rank="{r['rank']}">
   <td class="icon">{render_icon_cell(prop, png_dir)}</td>
   <td class="prop"><code>{html.escape(prop)}</code></td>
   <td class="rank">{rank}</td>
@@ -187,6 +192,15 @@ def render_html(report: dict, png_dir: Path, version: str) -> str:
     padding: 10px 16px;
     border-radius: 8px;
     min-width: 140px;
+    cursor: pointer;
+    user-select: none;
+    border: 2px solid transparent;
+    transition: border-color 80ms ease, transform 80ms ease;
+  }}
+  .summary > div:hover {{ border-color: rgba(127,127,127,0.4); }}
+  .summary > div.active {{
+    border-color: rgba(0, 119, 204, 0.7);
+    background: rgba(0, 119, 204, 0.08);
   }}
   .summary .label {{ color: var(--muted); font-size: 12px; }}
   .summary .value {{ font-size: 18px; font-weight: 600; }}
@@ -194,19 +208,51 @@ def render_html(report: dict, png_dir: Path, version: str) -> str:
     display: flex;
     gap: 12px;
     flex-wrap: wrap;
-    margin: 12px 0 24px;
+    margin: 12px 0 12px;
     font-size: 12px;
+    align-items: center;
   }}
-  .legend span {{
+  .legend span.chip {{
     padding: 4px 10px;
     border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+    border: 2px solid transparent;
+    transition: border-color 80ms ease;
   }}
+  .legend span.chip:hover {{ border-color: rgba(127,127,127,0.5); }}
+  .legend span.chip.active {{ border-color: rgba(0, 119, 204, 0.7); }}
   .legend .rank-1 {{ background: var(--rank-1); }}
   .legend .rank-23 {{ background: var(--rank-23); }}
   .legend .rank-410 {{ background: var(--rank-410); }}
   .legend .rank-50 {{ background: var(--rank-50); }}
   .legend .miss {{ background: var(--miss); }}
   .legend .skipped {{ background: var(--skipped); }}
+  .filter-bar {{
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 12px 0 12px;
+  }}
+  .clear-filter {{
+    background: transparent;
+    border: 1px solid rgba(127,127,127,0.4);
+    color: var(--fg);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    visibility: hidden;
+  }}
+  .clear-filter.show {{ visibility: visible; }}
+  .clear-filter:hover {{ border-color: rgba(0, 119, 204, 0.6); }}
+  .off-docs-note {{
+    font-size: 12px;
+    color: var(--muted);
+    max-width: 720px;
+    margin: 4px 0 16px;
+    line-height: 1.5;
+  }}
   table {{
     border-collapse: collapse;
     width: 100%;
@@ -272,23 +318,36 @@ def render_html(report: dict, png_dir: Path, version: str) -> str:
 <body>
 <header>
   <h1>EUI icon search quality — {version}</h1>
-  <div class="meta">Generated {html.escape(report['generated_at'])} · {summary['evaluated']} icons evaluated</div>
+  <div class="meta">Generated {html.escape(report['generated_at'])} · {summary['evaluated']} icons evaluated · {summary['skipped']} off docs grid</div>
   <div class="summary">
-    <div><div class="label">Top-1</div><div class="value">{pct_top1:.1f}%</div><div class="meta">{summary['ranked_top_1']} / {summary['evaluated']}</div></div>
-    <div><div class="label">Top-3</div><div class="value">{pct_top3:.1f}%</div><div class="meta">{summary['ranked_top_3']} / {summary['evaluated']}</div></div>
-    <div><div class="label">Top-10</div><div class="value">{pct_top10:.1f}%</div><div class="meta">{summary['ranked_top_10']} / {summary['evaluated']}</div></div>
-    <div><div class="label">Misses (≥50)</div><div class="value">{summary['not_in_top_50']}</div><div class="meta">unrecoverable</div></div>
-    <div><div class="label">Skipped</div><div class="value">{summary['skipped']}</div><div class="meta">no PNG</div></div>
+    <div data-filter="top-1"><div class="label">Top-1</div><div class="value">{pct_top1:.1f}%</div><div class="meta">{summary['ranked_top_1']} / {summary['evaluated']}</div></div>
+    <div data-filter="top-3"><div class="label">Top-3</div><div class="value">{pct_top3:.1f}%</div><div class="meta">{summary['ranked_top_3']} / {summary['evaluated']}</div></div>
+    <div data-filter="top-10"><div class="label">Top-10</div><div class="value">{pct_top10:.1f}%</div><div class="meta">{summary['ranked_top_10']} / {summary['evaluated']}</div></div>
+    <div data-filter="miss"><div class="label">Misses (≥50)</div><div class="value">{summary['not_in_top_50']}</div><div class="meta">unrecoverable</div></div>
+    <div data-filter="off-docs"><div class="label">Off docs grid</div><div class="value">{summary['skipped']}</div><div class="meta">intentionally untested</div></div>
   </div>
   <div class="legend">
-    <span class="rank-1">#1 (correct top hit)</span>
-    <span class="rank-23">#2–3</span>
-    <span class="rank-410">#4–10</span>
-    <span class="rank-50">#11–50</span>
-    <span class="miss">miss / not in top 50</span>
-    <span class="skipped">skipped (no PNG)</span>
+    <span class="chip rank-1" data-filter="rank-1">#1 (correct top hit)</span>
+    <span class="chip rank-23" data-filter="rank-23">#2–3</span>
+    <span class="chip rank-410" data-filter="rank-410">#4–10</span>
+    <span class="chip rank-50" data-filter="rank-50">#11–50</span>
+    <span class="chip miss" data-filter="miss">miss / not in top 50</span>
+    <span class="chip skipped" data-filter="off-docs">off docs grid</span>
   </div>
-  <input type="text" id="filter" placeholder="filter by prop name…" oninput="filterRows(this.value)">
+  <div class="off-docs-note">
+    <strong>Off docs grid:</strong> these icons are in the index and searchable in production
+    but are intentionally not measured. They don't appear on the EUI Icons docs page that the
+    evaluation harness walks (third-party brand logos like <code>logoAWS</code>, editor
+    positioning glyphs like <code>editorItemAlignLeft</code>, deprecation siblings like
+    <code>magnifyWithMinus</code>, and a handful of niche icons rendered in other docs sections).
+    They share the same model and index pipeline as the evaluated set, so we have no reason to
+    expect their search quality to differ.
+  </div>
+  <div class="filter-bar">
+    <input type="text" id="filter" placeholder="filter by prop name…" oninput="setTextQuery(this.value)">
+    <button class="clear-filter" id="clear-filter" onclick="clearActiveFilter()">clear filter</button>
+    <span id="filter-summary" class="meta"></span>
+  </div>
 </header>
 <table>
 <thead>
@@ -307,13 +366,78 @@ def render_html(report: dict, png_dir: Path, version: str) -> str:
 </tbody>
 </table>
 <script>
-  function filterRows(q) {{
-    q = q.toLowerCase();
-    for (const row of document.querySelectorAll('#rows tr')) {{
-      const propText = row.querySelector('td.prop').innerText.toLowerCase();
-      row.style.display = propText.includes(q) ? '' : 'none';
-    }}
+  // Active rank-tier filter id (one of: top-1, top-3, top-10, miss,
+  // off-docs, rank-1, rank-23, rank-410, rank-50). Null = no filter.
+  let activeFilter = null;
+  let textQuery = '';
+
+  function setTextQuery(q) {{
+    textQuery = q.toLowerCase();
+    applyFilters();
   }}
+
+  function setActiveFilter(filterId) {{
+    activeFilter = (activeFilter === filterId) ? null : filterId;
+    applyFilters();
+    syncFilterChrome();
+  }}
+
+  function clearActiveFilter() {{
+    activeFilter = null;
+    applyFilters();
+    syncFilterChrome();
+  }}
+
+  function rowMatchesFilter(row, filter) {{
+    if (filter === null) return true;
+    const cls = row.dataset.cls;
+    const rank = parseInt(row.dataset.rank, 10);
+    switch (filter) {{
+      // Cumulative summary tiles (Top-N percentages count anything ≤ N)
+      case 'top-1':  return rank === 1;
+      case 'top-3':  return rank >= 1 && rank <= 3;
+      case 'top-10': return rank >= 1 && rank <= 10;
+      // Exclusive bucket chips
+      case 'rank-1':   return cls === 'rank-1';
+      case 'rank-23':  return cls === 'rank-23';
+      case 'rank-410': return cls === 'rank-410';
+      case 'rank-50':  return cls === 'rank-50';
+      case 'miss':     return cls === 'miss' || cls === 'errored';
+      case 'off-docs': return cls === 'skipped';
+    }}
+    return true;
+  }}
+
+  function applyFilters() {{
+    let visibleCount = 0;
+    let totalCount = 0;
+    for (const row of document.querySelectorAll('#rows tr')) {{
+      totalCount++;
+      const propText = row.querySelector('td.prop').innerText.toLowerCase();
+      const textOk = !textQuery || propText.includes(textQuery);
+      const filterOk = rowMatchesFilter(row, activeFilter);
+      const visible = textOk && filterOk;
+      row.style.display = visible ? '' : 'none';
+      if (visible) visibleCount++;
+    }}
+    const summary = document.getElementById('filter-summary');
+    summary.textContent = (activeFilter || textQuery)
+      ? `showing ${{visibleCount}} of ${{totalCount}}`
+      : '';
+  }}
+
+  function syncFilterChrome() {{
+    document.querySelectorAll('[data-filter]').forEach(el => {{
+      el.classList.toggle('active', el.dataset.filter === activeFilter);
+    }});
+    document.getElementById('clear-filter').classList.toggle('show', activeFilter !== null);
+  }}
+
+  // Wire up clicks on every element with data-filter (summary cards
+  // and legend chips both use the same attribute).
+  document.querySelectorAll('[data-filter]').forEach(el => {{
+    el.addEventListener('click', () => setActiveFilter(el.dataset.filter));
+  }});
 </script>
 </body>
 </html>
