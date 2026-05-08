@@ -145,10 +145,16 @@ def rasterize_token(
     return bytes(resvg_py.svg_to_bytes(svg_string=svg))
 
 
-def resolve_chrome(color_token: str, shape: str) -> ResolvedChrome:
-    """Build a ResolvedChrome from a TOKEN_MAP entry's raw string fields."""
+def resolve_chrome(color_token: str, shape: str, theme: str = "amsterdam") -> ResolvedChrome:
+    """Build a ResolvedChrome from a TOKEN_MAP entry's raw string fields.
+
+    `theme` selects which EUI palette to resolve `euiColorVis*` against.
+    Defaults to Amsterdam for backward compatibility; pass `"borealis"`
+    for v110+ where EUI rebranded the same color names to different
+    hexes.
+    """
     return ResolvedChrome(
         shape=shape,
         color_token=color_token,
-        color_hex=resolve_color(color_token),
+        color_hex=resolve_color(color_token, theme=theme),
     )

@@ -25,6 +25,7 @@ os.environ.update({k: v for k, v in env.items() if v})
 
 from ingester.eui_repo import DEFAULT_LOCATION, EuiRepo  # noqa: E402
 from ingester.extract_svg import extract_from_tsx, to_inline_svg  # noqa: E402
+from ingester.palette import theme_for_repo  # noqa: E402
 from ingester.parse_maps import parse_repo  # noqa: E402
 from ingester.raster import rasterize_glyph, rasterize_token, resolve_chrome  # noqa: E402
 
@@ -45,6 +46,13 @@ def main() -> int:
     repo.checkout(args.version)
     icons, tokens, _ = parse_repo(repo.location)
 
+    # Detect which EUI theme palette this version ships under so we
+    # resolve euiColorVis* names against the right hexes. v110+ uses
+    # Borealis (where euiColorVis6 = coral); older versions use
+    # Amsterdam (where euiColorVis6 = tan). Same name, different hex.
+    theme = theme_for_repo(repo.location)
+    log.info("theme detected for %s: %s", args.version, theme)
+
     # Tokens have a (shape, color) entry in EUI's TOKEN_MAP. The docs
     # page (and any real user paste) renders them as colored chips with
     # white glyphs — NOT as bare black-and-white shapes. Indexing them
@@ -52,7 +60,10 @@ def main() -> int:
     # token icons (e.g., tokenBoolean) had been ranking poorly. Use
     # rasterize_token + the parsed chrome whenever a prop has a token
     # entry; fall back to rasterize_glyph for everything else.
-    chrome_by_prop = {t.prop_name: resolve_chrome(t.color, t.shape) for t in tokens}
+    chrome_by_prop = {
+        t.prop_name: resolve_chrome(t.color, t.shape, theme=theme)
+        for t in tokens
+    }
 
     args.out.mkdir(parents=True, exist_ok=True)
     ok = 0
