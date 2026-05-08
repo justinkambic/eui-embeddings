@@ -256,37 +256,49 @@ def _normalize_attr_names(body: str) -> str:
     return body
 
 
-# Color we substitute when an element relies on the
-# `euiIcon__fillNegative` class for its color. EUI's actual CSS rule is
-# `.euiIcon__fillNegative { fill: currentColor }`, which resolves to the
-# docs-page text color (dark navy). Without CSS, resvg rendered these
-# paths invisible because the parent <g fill="none"> wins. Affects ~19
-# Elastic logos (logoCloud, logoElasticsearch, logoKibana, logoLogstash,
-# logoSecurity, ...).
-_FILL_NEGATIVE_COLOR = "#1a1c21"
+# Substitute fill colors for elements whose color is set by an EUI CSS
+# class. resvg has no CSS in scope so these paths render either invisible
+# (for fillNegative — parent <g fill="none"> wins) or in the wrong color
+# (for fillSecondary — falls back to the wrapper's <g fill="black">).
+#
+# Without these substitutions the canonical PNG diverges from what the
+# docs page renders, which destroys retrieval accuracy on the 79 affected
+# icons (Elastic product logos using fillNegative + every "App" icon
+# using fillSecondary as their accent color).
+#
+# The colors approximate EUI's docs-theme resolution:
+#   .euiIcon__fillNegative { fill: currentColor }  → dark navy text color
+#   .euiIcon__fillSecondary { fill: colors.primary } → EUI primary blue
+_CLASS_FILL_COLORS: dict[str, str] = {
+    "euiIcon__fillNegative": "#1a1c21",
+    "euiIcon__fillSecondary": "#0077cc",
+}
 
-# Match any element whose class/className attribute contains
-# `euiIcon__fillNegative`. Captures the opening attrs and the close so we
-# can inject a fill if one isn't already declared.
-_FILL_NEGATIVE_RE = re.compile(
-    r'(<[a-zA-Z][^>]*?\b(?:class|className)\s*=\s*"[^"]*\beuiIcon__fillNegative\b[^"]*"[^>]*?)(/?>)',
+# Match any element whose class/className contains one of the keys in
+# _CLASS_FILL_COLORS. We capture the class name in group(2) so we can
+# look up the right color, plus the opening attrs (1) and the close (3).
+_CLASS_FILL_RE = re.compile(
+    r'(<[a-zA-Z][^>]*?\b(?:class|className)\s*=\s*"[^"]*\b'
+    r'(' + "|".join(re.escape(k) for k in _CLASS_FILL_COLORS) + r')'
+    r'\b[^"]*"[^>]*?)(/?>)',
     re.DOTALL,
 )
 
 
-def _inject_fill_negative(content: str, color: str = _FILL_NEGATIVE_COLOR) -> str:
-    """For each element using `euiIcon__fillNegative`, add an explicit
-    `fill="<color>"` so resvg can render it.
+def _inject_class_fills(content: str) -> str:
+    """For each element using one of the recognized EUI fill classes,
+    add an explicit `fill="<color>"` so resvg can render it correctly.
 
     Skips elements that already declare a fill (don't override).
     """
     def add_fill(match: re.Match) -> str:
         opening = match.group(1)
-        closing = match.group(2)
+        cls = match.group(2)
+        closing = match.group(3)
         if re.search(r'\bfill\s*=\s*"[^"]*"', opening):
             return match.group(0)
-        return f'{opening} fill="{color}"{closing}'
-    return _FILL_NEGATIVE_RE.sub(add_fill, content)
+        return f'{opening} fill="{_CLASS_FILL_COLORS[cls]}"{closing}'
+    return _CLASS_FILL_RE.sub(add_fill, content)
 
 
 def to_inline_svg(extracted: ExtractedSvg) -> str:
@@ -296,10 +308,11 @@ def to_inline_svg(extracted: ExtractedSvg) -> str:
     xlink:href (recovered from JSX `xlinkHref={...}`) and resvg refuses
     to render unknown-prefix attributes.
 
-    Also injects an explicit fill on `euiIcon__fillNegative` elements
-    so they're not rendered invisible by resvg (which has no CSS).
+    Also injects explicit fills on elements that rely on EUI's
+    class-based color rules (euiIcon__fillNegative / fillSecondary)
+    so they aren't rendered as the wrong color or invisible by resvg.
     """
-    inner = _inject_fill_negative(extracted.inner)
+    inner = _inject_class_fills(extracted.inner)
     vbx, vby, vbw, vbh = extracted.viewbox
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" '
