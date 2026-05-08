@@ -97,8 +97,15 @@ _ICON_MAP_BODY_RE = re.compile(
     re.DOTALL,
 )
 
+# EUI renamed this constant a couple of times during the v100-v109 theme
+# migrations (TOKEN_MAP_AMSTERDAM in v100/v105, TOKEN_MAP_BOREALIS appeared
+# alongside in v105, then v110+ reverted to plain TOKEN_MAP). Match any
+# TOKEN_MAP* variant; the first one we find is used. When multiple coexist
+# (v105 has both AMSTERDAM and BOREALIS), pinning to the first declaration
+# keeps the parser deterministic and aligns with what the docs site
+# rendered for that version.
 _TOKEN_MAP_BODY_RE = re.compile(
-    r"export\s+const\s+TOKEN_MAP\b[^=]*=\s*\{(?P<body>.*?)\}\s*;",
+    r"export\s+const\s+TOKEN_MAP\w*\b[^=]*=\s*\{(?P<body>.*?)\}\s*;",
     re.DOTALL,
 )
 
