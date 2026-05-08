@@ -82,17 +82,28 @@ async def _knn_search(
     vector: list[float],
     version: str,
     k: int = 50,
+    *,
+    all_versions: bool = False,
 ) -> list[dict[str, Any]]:
+    """Run a kNN over `field`. When `all_versions` is True, the
+    release_tag filter is dropped so the kNN sees every indexed version
+    of every prop. The caller is expected to dedupe by asset_filename
+    or prop_name afterwards (the existing rank-finding logic in
+    process_icon already takes the first asset_filename match, which
+    naturally selects the highest-scoring version per icon).
+    """
+    knn: dict[str, Any] = {
+        "field": field,
+        "query_vector": vector,
+        "k": k,
+        "num_candidates": max(200, k * 4),
+    }
+    if not all_versions:
+        knn["filter"] = [{"term": {"release_tag": version}}]
     body = {
         "size": k,
         "_source": ["prop_name", "release_tag", "asset_filename"],
-        "knn": {
-            "field": field,
-            "query_vector": vector,
-            "k": k,
-            "num_candidates": max(200, k * 4),
-            "filter": [{"term": {"release_tag": version}}],
-        },
+        "knn": knn,
     }
     r = await http.post(
         f"{es_endpoint.rstrip('/')}/{index}/_search",
@@ -197,6 +208,7 @@ async def process_icon(
     png_dir: Path | None = None,
     sidecar_url: str | None = None,
     normalize: bool = False,
+    all_versions: bool = False,
 ) -> IconResult:
     aliases = [p for p in asset_to_props.get(asset_filename, []) if p != prop_name]
     try:
@@ -259,25 +271,42 @@ async def process_icon(
                     vecs[0],
                     version,
                     k=50,
+                    all_versions=all_versions,
                 )
+
+        # Dedupe by asset_filename BEFORE counting rank. Cross-version
+        # indexes return the same asset multiple times (one per indexed
+        # EUI version); without this dedup the rank computation
+        # double-counts duplicate hits and makes a perfectly correct
+        # multi-version match look like rank 3+. Hits arrive sorted by
+        # descending score, so first-seen-per-asset is the highest-
+        # scoring version of that icon.
+        seen_assets: set[str] = set()
+        deduped_hits: list[dict[str, Any]] = []
+        for h in hits:
+            asset = h.get("asset_filename") or f"__no_asset__{h['prop_name']}"
+            if asset in seen_assets:
+                continue
+            seen_assets.add(asset)
+            deduped_hits.append(h)
 
         # Find the rank of any doc whose asset_filename matches ours
         # (alias-aware matching).
         rank = -1
         self_score: float | None = None
-        for i, h in enumerate(hits):
+        for i, h in enumerate(deduped_hits):
             if h["asset_filename"] == asset_filename:
                 rank = i + 1
                 self_score = h["score"]
                 break
 
-        top_hit = hits[0]["prop_name"] if hits else None
-        top_score = hits[0]["score"] if hits else None
+        top_hit = deduped_hits[0]["prop_name"] if deduped_hits else None
+        top_score = deduped_hits[0]["score"] if deduped_hits else None
         gap = (top_score - self_score) if (top_score is not None and self_score is not None) else None
 
         # Top-3 competitors: hits whose asset_filename != ours, in order.
         competitors: list[tuple[str, float]] = []
-        for h in hits:
+        for h in deduped_hits:
             if h["asset_filename"] != asset_filename and len(competitors) < 3:
                 competitors.append((h["prop_name"], h["score"]))
 
@@ -425,6 +454,7 @@ async def run(
     png_dir: Path | None = None,
     sidecar_url: str | None = None,
     normalize: bool = False,
+    all_versions: bool = False,
 ) -> int:
     cfg = EsConfig(
         endpoint=os.environ["ELASTICSEARCH_ENDPOINT"],
@@ -475,6 +505,7 @@ async def run(
                     png_dir=png_dir,
                     sidecar_url=sidecar_url,
                     normalize=normalize,
+                    all_versions=all_versions,
                 )
                 for (p, a, path) in plans
             ]
@@ -542,6 +573,19 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--all-versions",
+        action="store_true",
+        help=(
+            "Drop the `release_tag` filter at kNN time so the search "
+            "considers every indexed version of every icon. The "
+            "asset_filename-based dedup naturally takes the highest-"
+            "scoring version per icon, treating cross-version variants "
+            "as free data augmentation. Use this to evaluate whether a "
+            "multi-version index lifts retrieval over the v115-only "
+            "baseline."
+        ),
+    )
+    parser.add_argument(
         "--via-sidecar",
         nargs="?",
         const="http://127.0.0.1:4555",
@@ -577,6 +621,7 @@ def main() -> int:
             png_dir=png_dir,
             sidecar_url=args.via_sidecar,
             normalize=args.normalize,
+            all_versions=args.all_versions,
         )
     )
 
