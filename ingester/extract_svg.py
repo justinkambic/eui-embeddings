@@ -256,18 +256,55 @@ def _normalize_attr_names(body: str) -> str:
     return body
 
 
+# Color we substitute when an element relies on the
+# `euiIcon__fillNegative` class for its color. EUI's actual CSS rule is
+# `.euiIcon__fillNegative { fill: currentColor }`, which resolves to the
+# docs-page text color (dark navy). Without CSS, resvg rendered these
+# paths invisible because the parent <g fill="none"> wins. Affects ~19
+# Elastic logos (logoCloud, logoElasticsearch, logoKibana, logoLogstash,
+# logoSecurity, ...).
+_FILL_NEGATIVE_COLOR = "#1a1c21"
+
+# Match any element whose class/className attribute contains
+# `euiIcon__fillNegative`. Captures the opening attrs and the close so we
+# can inject a fill if one isn't already declared.
+_FILL_NEGATIVE_RE = re.compile(
+    r'(<[a-zA-Z][^>]*?\b(?:class|className)\s*=\s*"[^"]*\beuiIcon__fillNegative\b[^"]*"[^>]*?)(/?>)',
+    re.DOTALL,
+)
+
+
+def _inject_fill_negative(content: str, color: str = _FILL_NEGATIVE_COLOR) -> str:
+    """For each element using `euiIcon__fillNegative`, add an explicit
+    `fill="<color>"` so resvg can render it.
+
+    Skips elements that already declare a fill (don't override).
+    """
+    def add_fill(match: re.Match) -> str:
+        opening = match.group(1)
+        closing = match.group(2)
+        if re.search(r'\bfill\s*=\s*"[^"]*"', opening):
+            return match.group(0)
+        return f'{opening} fill="{color}"{closing}'
+    return _FILL_NEGATIVE_RE.sub(add_fill, content)
+
+
 def to_inline_svg(extracted: ExtractedSvg) -> str:
     """Wrap the extracted inner content in a clean self-contained <svg>.
 
     Includes the xlink namespace declaration because some EUI logos use
     xlink:href (recovered from JSX `xlinkHref={...}`) and resvg refuses
     to render unknown-prefix attributes.
+
+    Also injects an explicit fill on `euiIcon__fillNegative` elements
+    so they're not rendered invisible by resvg (which has no CSS).
     """
+    inner = _inject_fill_negative(extracted.inner)
     vbx, vby, vbw, vbh = extracted.viewbox
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" '
         f'xmlns:xlink="http://www.w3.org/1999/xlink" '
         f'viewBox="{vbx} {vby} {vbw} {vbh}">'
-        f"{extracted.inner}"
+        f"{inner}"
         f"</svg>"
     )
