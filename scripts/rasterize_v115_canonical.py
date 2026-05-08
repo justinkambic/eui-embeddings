@@ -26,7 +26,7 @@ os.environ.update({k: v for k, v in env.items() if v})
 from ingester.eui_repo import DEFAULT_LOCATION, EuiRepo  # noqa: E402
 from ingester.extract_svg import extract_from_tsx, to_inline_svg  # noqa: E402
 from ingester.parse_maps import parse_repo  # noqa: E402
-from ingester.raster import rasterize_glyph  # noqa: E402
+from ingester.raster import rasterize_glyph, rasterize_token, resolve_chrome  # noqa: E402
 
 log = logging.getLogger("rasterize_v115_canonical")
 
@@ -43,10 +43,20 @@ def main() -> int:
 
     repo = EuiRepo(Path(DEFAULT_LOCATION))
     repo.checkout(args.version)
-    icons, _, _ = parse_repo(repo.location)
+    icons, tokens, _ = parse_repo(repo.location)
+
+    # Tokens have a (shape, color) entry in EUI's TOKEN_MAP. The docs
+    # page (and any real user paste) renders them as colored chips with
+    # white glyphs — NOT as bare black-and-white shapes. Indexing them
+    # as bare glyphs creates a massive train/test mismatch and is why
+    # token icons (e.g., tokenBoolean) had been ranking poorly. Use
+    # rasterize_token + the parsed chrome whenever a prop has a token
+    # entry; fall back to rasterize_glyph for everything else.
+    chrome_by_prop = {t.prop_name: resolve_chrome(t.color, t.shape) for t in tokens}
 
     args.out.mkdir(parents=True, exist_ok=True)
     ok = 0
+    ok_token = 0
     failed = 0
     for ic in icons:
         asset_path = repo.assets_dir() / f"{ic.asset_filename}.tsx"
@@ -55,13 +65,21 @@ def main() -> int:
         try:
             tsx = asset_path.read_text(encoding="utf-8")
             inline = to_inline_svg(extract_from_tsx(tsx))
-            png = rasterize_glyph(inline)
+            chrome = chrome_by_prop.get(ic.prop_name)
+            if chrome is not None:
+                png = rasterize_token(inline, chrome)
+                ok_token += 1
+            else:
+                png = rasterize_glyph(inline)
             (args.out / f"{ic.prop_name}.png").write_bytes(png)
             ok += 1
         except Exception as e:
             log.warning("skip %s: %s", ic.prop_name, e)
             failed += 1
-    log.info("done: ok=%d failed=%d -> %s", ok, failed, args.out)
+    log.info(
+        "done: ok=%d (tokens=%d) failed=%d -> %s",
+        ok, ok_token, failed, args.out,
+    )
     return 0
 
 
