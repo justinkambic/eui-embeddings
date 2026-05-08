@@ -274,6 +274,21 @@ def render_html(report: dict, png_dir: Path, version: str) -> str:
     z-index: 1;
     border-bottom: 2px solid rgba(127,127,127,0.4);
   }}
+  th[data-sort] {{
+    cursor: pointer;
+    user-select: none;
+  }}
+  th[data-sort]:hover {{ background: rgba(127,127,127,0.08); }}
+  th[data-sort]::after {{
+    content: '';
+    display: inline-block;
+    width: 1em;
+    color: var(--muted);
+    opacity: 0.4;
+  }}
+  th[data-sort]:hover::after {{ opacity: 0.7; }}
+  th[data-sort][data-sort-dir="asc"]::after {{ content: ' ▲'; opacity: 1; color: var(--fg); }}
+  th[data-sort][data-sort-dir="desc"]::after {{ content: ' ▼'; opacity: 1; color: var(--fg); }}
   td.icon {{ width: 40px; text-align: center; }}
   td.icon img {{
     width: 28px;
@@ -353,11 +368,11 @@ def render_html(report: dict, png_dir: Path, version: str) -> str:
 <thead>
 <tr>
   <th></th>
-  <th>prop</th>
-  <th>rank</th>
-  <th>score</th>
-  <th>top hit (when rank &gt; 1)</th>
-  <th>Δ</th>
+  <th data-sort="prop">prop</th>
+  <th data-sort="rank">rank</th>
+  <th data-sort="score">score</th>
+  <th data-sort="top-hit">top hit (when rank &gt; 1)</th>
+  <th data-sort="gap">Δ</th>
   <th>closest competitors</th>
 </tr>
 </thead>
@@ -437,6 +452,77 @@ def render_html(report: dict, png_dir: Path, version: str) -> str:
   // and legend chips both use the same attribute).
   document.querySelectorAll('[data-filter]').forEach(el => {{
     el.addEventListener('click', () => setActiveFilter(el.dataset.filter));
+  }});
+
+  // --- column sort -----------------------------------------------------------
+
+  let sortColumn = null;
+  let sortDir = 'asc';
+
+  function getSortValue(row, column) {{
+    switch (column) {{
+      case 'prop':
+        return row.querySelector('td.prop').innerText.toLowerCase();
+      case 'rank': {{
+        // Off-docs (-2) and miss (-1) sort to the bottom of ascending,
+        // top of descending — they're "worse than" any real rank.
+        const r = parseInt(row.dataset.rank, 10);
+        if (r === -2) return Number.MAX_SAFE_INTEGER;
+        if (r === -1) return Number.MAX_SAFE_INTEGER - 1;
+        return r;
+      }}
+      case 'score': {{
+        const s = row.querySelector('td.score').innerText;
+        return s === '—' ? -Infinity : parseFloat(s);
+      }}
+      case 'top-hit':
+        return row.querySelector('td.top-hit').innerText.toLowerCase();
+      case 'gap': {{
+        // Δ is "+0.034" style. Missing/dash sorts to extremes so it
+        // doesn't pollute the "actually close calls" view.
+        const g = row.querySelector('td.gap').innerText.replace(/[^\d.\-+]/g, '');
+        return g === '' ? Infinity : parseFloat(g);
+      }}
+    }}
+    return 0;
+  }}
+
+  function sortRows(column) {{
+    if (sortColumn === column) {{
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    }} else {{
+      sortColumn = column;
+      sortDir = 'asc';
+    }}
+    const tbody = document.getElementById('rows');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort((a, b) => {{
+      const va = getSortValue(a, column);
+      const vb = getSortValue(b, column);
+      let cmp;
+      if (typeof va === 'number' && typeof vb === 'number') {{
+        cmp = va - vb;
+      }} else {{
+        cmp = String(va).localeCompare(String(vb));
+      }}
+      return sortDir === 'asc' ? cmp : -cmp;
+    }});
+    for (const row of rows) tbody.appendChild(row);
+    syncSortChrome();
+  }}
+
+  function syncSortChrome() {{
+    document.querySelectorAll('th[data-sort]').forEach(th => {{
+      if (th.dataset.sort === sortColumn) {{
+        th.dataset.sortDir = sortDir;
+      }} else {{
+        delete th.dataset.sortDir;
+      }}
+    }});
+  }}
+
+  document.querySelectorAll('th[data-sort]').forEach(th => {{
+    th.addEventListener('click', () => sortRows(th.dataset.sort));
   }});
 </script>
 </body>
