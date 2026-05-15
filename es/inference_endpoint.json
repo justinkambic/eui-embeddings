@@ -1,0 +1,6 @@
+{
+  "service": "elastic",
+  "service_settings": {
+    "model_id": "jina-clip-v2"
+  }
+}

@@ -1,0 +1,77 @@
+flowchart TB
+    subgraph DataSources["📦 Data Sources"]
+        EUIRepo["EUI repo<br/>(.cache/eui)"]
+        EUITags["6 versions<br/>v91 / v95 / v100 / v105 / v110 / v115"]
+        EUIRepo --> EUITags
+    end
+
+    subgraph Ingestion["⚙️ Ingestion Pipeline (offline)"]
+        direction TB
+        ParseMaps["parse_maps.py<br/>iconMap + TOKEN_MAP*<br/>(handles AMSTERDAM/BOREALIS rename)"]
+        ExtractSVG["extract_svg.py<br/>JSX → SVG<br/>+ inject fill on<br/>fillNegative / fillSecondary"]
+        Raster["raster.py<br/>rasterize_glyph (default)<br/>rasterize_token (chrome)<br/>theme: Amsterdam vs Borealis"]
+        Centroids["build_augmented_centroids.py<br/>4 padding variants<br/>→ mean-pool 4 vectors"]
+        Embed1["jina-clip-v2 via _inference<br/>(image embedding)"]
+        ParseMaps --> ExtractSVG --> Raster --> Embed1
+        Raster --> Centroids
+        Centroids --> Embed1
+    end
+
+    EUITags --> ParseMaps
+
+    subgraph ES["🗄️ Elasticsearch (Elastic Cloud)"]
+        IDX["eui_icons index<br/>3,211 docs across 6 versions<br/>image_vector_aug_centroid 🌟<br/>+ legacy + experiment fields"]
+    end
+
+    Embed1 --> IDX
+
+    subgraph Sidecar["🚦 icon-search-server"]
+        Normalize["Sharp normalize<br/>flatten + resize-fit-contain<br/>256×256"]
+        EmbedQ["jina-clip-v2<br/>query embedding"]
+        KNN["kNN against<br/>aug_centroid<br/>+ asset dedup<br/>→ top-12"]
+        Normalize --> EmbedQ --> KNN
+    end
+
+    KNN -- "knn search" --> IDX
+
+    subgraph DocsPage["🌐 EUI Docs page"]
+        IconSearch["IconSearch.tsx<br/>paste / drop / type"]
+    end
+
+    IconSearch -- "POST /api/icon-search" --> Sidecar
+
+    subgraph MCP["🤖 MCP Server"]
+        MCPServer["server.py<br/>icon_search()<br/>icon_versions()"]
+    end
+
+    User(["👤 User"]) -- "drag / paste / type" --> IconSearch
+    User -- "paste image into chat" --> AI["Claude Code / Cursor"]
+    AI -- "MCP tool call" --> MCPServer
+    MCPServer -- "POST /api/icon-search" --> Sidecar
+
+    subgraph Quality["📊 Quality Pipeline"]
+        direction TB
+        Playwright["render_icons_playwright.py<br/>headless Chromium<br/>capture each #icon-X cell"]
+        CanonicalPNGs["resvg PNGs<br/>(centroid source)"]
+        TestPNGs["Playwright PNGs<br/>(query, held out)"]
+        Sweep["quality_sweep.py<br/>+ alias-aware ranking"]
+        HTML["build_quality_html.py<br/>→ static dashboard"]
+        Playwright --> TestPNGs --> Sweep
+        Sweep --> HTML
+        Raster -.canonical.-> CanonicalPNGs
+        CanonicalPNGs -.train centroid.-> Centroids
+    end
+
+    Sweep -- "embed query / kNN" --> ES
+
+    classDef storage fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef pipe fill:#FFF3E0,stroke:#E65100,color:#5D2700
+    classDef ui fill:#E8F5E8,stroke:#2E7D32,color:#1B5E20
+    classDef ai fill:#F3E5F5,stroke:#6A1B9A,color:#4A148C
+    classDef test fill:#FFF8E1,stroke:#F9A825,color:#3E2723
+
+    class IDX,EUIRepo,EUITags,CanonicalPNGs,TestPNGs storage
+    class ParseMaps,ExtractSVG,Raster,Embed1,Centroids,Normalize,EmbedQ,KNN pipe
+    class IconSearch,DocsPage,User ui
+    class MCPServer,AI ai
+    class Playwright,Sweep,HTML test

@@ -1,246 +1,76 @@
-# EUI Icon Embeddings System
+# EUI Embeddings
 
-A multi-modal search system for EUI icons supporting text descriptions, image matching, and SVG code search using dense vector embeddings and Elasticsearch.
+Multimodal vector search over [Elastic UI](https://github.com/elastic/eui) icons.
+Paste an image of an icon (or type a description), get back the closest EUI
+icons with version-aware filtering.
 
-## Features
+This repo houses the **ingester** that walks `elastic/eui` git tags from `v91`
+forward, rasterizes each icon's SVG (raw glyph + programmatically chromed
+token), and writes vectors to an Elasticsearch cluster running on Elastic
+Cloud. The actual search UX lives in a development branch on a fork of
+`elastic/eui` (see `feat/icon-vector-search` in `~/git/justinkambic/eui`),
+which injects an `<IconSearch />` MDX component into the docs Icons page.
 
-- **Text Search**: Semantic search using dense embeddings (all-MiniLM-L6-v2) and sparse embeddings (ELSER)
-- **Image Search**: Visual similarity search using CLIP embeddings
-- **SVG Search**: Search by SVG code using normalized SVG-to-image embeddings
-- **Batch Indexing**: Efficient bulk processing of hundreds of icons
+## Status
 
-## Setup
+🚧 In active rebuild. The legacy stack (FastAPI + Playwright + Next.js +
+HuggingFace CLIP) lives under `legacy/` for migration reference. The new
+stack uses **Jina `jina-clip-v2` via Elastic Inference Service** for both
+text and image embeddings — no separate inference service required.
 
-### 1. Install Python Dependencies
+See:
+- `docs/PHASE_0_FINDINGS.md` — verified inference path on the v9.4 cluster.
+- `~/git/justinkambic/project-history/reference/eui-embeddings/architecture/revamp-plan.md` —
+  the active architecture plan and phased schedule.
+- `~/git/justinkambic/project-history/reference/eui-embeddings/architecture/legacy-snapshot.md` —
+  what existed before the rebuild and why we changed it.
 
-**Important**: You must use a virtual environment. The project already has a `venv/` directory.
+## Layout
+
+```
+ingester/        Python package that walks EUI tags and writes vectors to ES.
+es/              Bash + JSON to create the inference endpoint, index, smoke test.
+examples/mcp/    Reference for re-adding MCP support (Phase 7+).
+docs/            Active runbooks and Phase findings.
+legacy/          Legacy stack (FastAPI, Playwright, Next.js, GCP YAMLs). Kept
+                 for migration reference, not used by the new arch.
+```
+
+## Quick start
 
 ```bash
-# Activate the existing virtual environment
-source venv/bin/activate
+# 1. Copy env template, fill in cluster URL + API key.
+cp .env.example .env
+$EDITOR .env
 
-# Then install dependencies
-pip install -r requirements.txt
+# 2. Verify the cluster is reachable.
+make verify
+
+# 3. (Phase 2) Set up the inference endpoint and index.
+make seed
+
+# 4. (Phase 3) Ingest a single EUI version.
+make ingest VERSION=v115.0.0
+
+# 5. (Phase 3) Background trickle backfill of older versions.
+make ingest-trickle FROM=v92.0.0 TO=v114.0.0 PACE=10m
 ```
 
-**If you don't have a virtual environment yet:**
-```bash
-# Create a new virtual environment
-python3 -m venv venv
+`make help` lists every target.
 
-# Activate it
-source venv/bin/activate
+## Architecture (one paragraph)
 
-# Install dependencies
-pip install -r requirements.txt
-```
+ES holds one index `eui_icons` keyed by `${prop_name}@${release_tag}#${kind}`,
+where `kind ∈ {glyph, token}`. The `kind: glyph` doc is the raw EUI SVG
+rasterized to PNG; `kind: token` is the same glyph composited onto a colored
+shape derived from `TOKEN_MAP` in EUI's source — both rasterized via `resvg`,
+no Playwright. Both vectors come from `jina-clip-v2` via the EIS inference
+endpoint (1024d, cosine). At search time the EUI fork's `<IconSearch />`
+component routes the query to the right `kind` based on either a UI toggle
+or a small classifier, applies the version filter (default = the version
+the docs are built against), and reorders the standard EUI icon grid by
+similarity score. See the revamp plan for the full picture.
 
-**Note**: Always activate the virtual environment before running Python commands:
-```bash
-source venv/bin/activate
-```
+## License
 
-### 2. Install Node.js Dependencies
-
-```bash
-cd frontend
-npm install
-```
-
-### 3. Set Environment Variables
-
-Create a `.env` file in the project root:
-
-```env
-ELASTICSEARCH_ENDPOINT=https://your-cluster.es.amazonaws.com
-ELASTICSEARCH_API_KEY=your-api-key
-```
-
-### 4. Setup Elasticsearch Index
-
-Run the index setup script:
-
-```bash
-python utils/es_index_setup.py
-```
-
-This creates the `icons` index with proper mappings for:
-- `text_embedding` (dense_vector, 384 dims)
-- `text_embedding_sparse` (sparse_vector for ELSER)
-- `image_embedding` (dense_vector, 512 dims)
-- `svg_embedding` (dense_vector, 512 dims)
-
-### 5. Deploy ELSER Model (Optional)
-
-For sparse embeddings, deploy the ELSER model in Elasticsearch:
-
-```bash
-PUT _ml/trained_models/.elser_model_2/_deploy
-```
-
-### 6. Start the Embedding Service
-
-```bash
-uvicorn embed:app --reload --port 8000
-```
-
-### 7. Start the Frontend
-
-```bash
-cd frontend
-npm run dev
-```
-
-## Usage
-
-### Search API
-
-**POST** `/api/search`
-
-Search for icons by text, image, or SVG:
-
-```json
-{
-  "type": "text",
-  "query": "user icon with circle"
-}
-```
-
-```json
-{
-  "type": "image",
-  "query": "base64-encoded-image-data"
-}
-```
-
-```json
-{
-  "type": "svg",
-  "query": "<svg>...</svg>"
-}
-```
-
-### Batch Indexing
-
-**POST** `/api/batchIndexText`
-
-Index text descriptions for multiple icons:
-
-```json
-{
-  "items": [
-    { "iconName": "user", "description": "user icon" },
-    { "iconName": "home", "description": "home icon" }
-  ]
-}
-```
-
-**POST** `/api/batchIndexImages`
-
-Generate and index image embeddings for multiple icons:
-
-```json
-{
-  "iconNames": ["user", "home", "settings"]
-}
-```
-
-**POST** `/api/batchIndexSVG`
-
-Extract, normalize, and index SVG embeddings for multiple icons:
-
-```json
-{
-  "iconNames": ["user", "home", "settings"]
-}
-```
-
-## Testing
-
-Run the Elasticsearch validation test:
-
-```bash
-python tests/integration/test_elasticsearch_setup.py
-```
-
-This validates:
-- Connection and authentication
-- Index existence and mapping
-- Dense vector field support
-- ELSER sparse embedding support
-- Search functionality
-
-## Architecture
-
-- **FastAPI Service** (`embed.py`): Handles embedding generation for text, images, and SVG
-- **Next.js Frontend**: Provides API endpoints for search and batch indexing
-- **Elasticsearch**: Stores embeddings and performs vector search
-- **CLIP Model**: Generates 384-dim embeddings for images and SVG
-- **ELSER**: Provides sparse embeddings for enhanced text search
-
-## Documentation
-
-- **[Documentation Index](docs/README.md)** - Complete documentation guide
-- **[Deployment Guide](docs/deployment.md)** - Cloud Run deployment guide
-
-## MCP Server
-
-The project includes an MCP (Model Context Protocol) server that allows AI agents to search for icons using SVG code, image data, or text descriptions.
-
-**Quick Start:**
-```bash
-# Install MCP SDK
-pip install mcp
-
-# Run the MCP server
-python mcp_server.py
-```
-
-**Configuration:**
-Set environment variables:
-- `SEARCH_API_URL` - Search API endpoint (default: http://localhost:8000/search)
-- `EMBEDDING_SERVICE_URL` - Embedding service URL (default: http://localhost:8000)
-
-**Tools Available:**
-- `search_by_svg` - Search using SVG code
-- `search_by_image` - Search using base64 image data
-
-See [docs/api/mcp-server.md](docs/api/mcp-server.md) for detailed documentation.
-
-## File Structure
-
-```
-eui-embeddings/
-├── embed.py                    # FastAPI embedding service
-├── mcp_server.py               # MCP server for AI agents
-├── image_processor.py          # Image normalization utilities
-├── svg_processor.py            # SVG normalization utilities
-├── docs/
-│   ├── README.md               # Documentation index
-│   ├── deployment.md           # Deployment guide
-│   ├── setup.md                # Setup guide
-│   ├── observability.md        # Observability guide
-│   ├── troubleshooting.md      # Troubleshooting guide
-│   ├── api/                    # API documentation
-│   ├── infrastructure/         # Infrastructure guides
-│   └── archive/                # Archived documentation
-├── scripts/
-│   ├── deploy/                 # Deployment scripts
-│   ├── setup/                  # Setup scripts
-│   ├── verify/                 # Verification scripts
-│   ├── manage/                 # Management scripts
-│   ├── index/                  # Indexing scripts
-│   └── test/                   # Test scripts
-├── tests/
-│   ├── integration/           # Integration tests
-│   └── phase/                  # Phase-specific tests
-├── utils/
-│   ├── es_index_setup.py       # Elasticsearch index setup
-│   ├── check_index.py          # Index diagnostic utility
-│   ├── diagnose_embeddings.py  # Embedding diagnostic utility
-│   └── icon_renderer.js        # Icon rendering utilities (Node.js)
-├── frontend/                   # Next.js frontend application
-├── token_renderer/             # Token renderer service
-└── requirements.txt            # Python dependencies
-```
-
+[Apache 2.0](LICENSE.txt).

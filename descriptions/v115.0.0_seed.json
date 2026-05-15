@@ -1,0 +1,25 @@
+{
+  "_comment": "Hand-curated descriptions for icons that fail the canonical search. Each description mentions: (1) the shape, (2) the category (app/logo/token/glyph), and (3) any distinguishing detail (chirality, fill state, count). These are seed descriptions used to validate the cross-modal hybrid wiring. Once verified, the rule-based generator produces the rest.",
+
+  "alignLeft": "left-aligned text",
+  "alignRight": "right-aligned text",
+  "clickLeft": "left mouse click",
+  "clickRight": "right mouse click",
+
+  "lock": "closed padlock with the shackle engaged, indicating a locked state",
+  "lockOpen": "open padlock with the shackle disengaged, indicating an unlocked state",
+  "key": "single horizontal key with teeth, isolated glyph used for credentials",
+  "tokenKey": "key inside a colored rounded square chrome, an EuiToken indicating a key field type",
+
+  "apmApp": "Kibana application icon for APM, a magnifying glass overlaid on a horizontal chart line, square chart-style framing",
+  "logoLogstash": "Elastic Logstash product logo, three vertical pipes joining downward into a single output, brand-colored",
+  "fleetApp": "Kibana application icon for Fleet, a sailboat or ship silhouette inside a square app frame",
+  "logoGCP": "Google Cloud Platform logo, four overlapping rotated squares forming a hexagonal cloud silhouette in Google brand colors",
+
+  "plusInCircle": "plus sign centered inside an outlined circle, addition glyph",
+  "plusInCircleFilled": "plus sign centered inside a solid filled circle, addition glyph",
+  "plusInSquare": "plus sign centered inside an outlined square with rounded corners, addition glyph",
+  "minusInCircle": "minus sign centered inside an outlined circle, subtraction glyph",
+  "minusInCircleFilled": "minus sign centered inside a solid filled circle, subtraction glyph",
+  "minusInSquare": "minus sign centered inside an outlined square with rounded corners, subtraction glyph"
+}

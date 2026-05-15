@@ -216,3 +216,6 @@ data/rendered_images/
 # Sentence Transformers cache (optional)
 # ~/.cache/torch/sentence_transformers/
 
+ingester/state/
+reports/
+.venv-mcp/
