@@ -1,0 +1,31 @@
+{
+  "_comment": "Per-query log of icon searches, including the user's pick. Captured at /api/icon-search and updated at /api/icon-search/feedback. Source of (image, picked_prop) pairs for future fine-tuning, and a continuous read on production retrieval quality (picked_rank distribution).",
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "properties": {
+      "query_id":         { "type": "keyword" },
+      "ts":               { "type": "date" },
+      "release_tag":      { "type": "keyword" },
+
+      "query_kind":       { "type": "keyword" },
+      "query_text":       { "type": "text" },
+      "query_image_b64":  { "type": "text", "index": false, "doc_values": false },
+      "normalized_image_b64": { "type": "text", "index": false, "doc_values": false },
+
+      "top_hits": {
+        "type": "object",
+        "enabled": false
+      },
+
+      "picked_prop_name": { "type": "keyword" },
+      "picked_rank":      { "type": "short" },
+      "picked_at":        { "type": "date" },
+
+      "took_ms":          { "type": "short" },
+      "client_ip_hash":   { "type": "keyword" }
+    }
+  }
+}
