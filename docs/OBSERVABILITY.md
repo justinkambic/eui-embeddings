@@ -81,6 +81,21 @@ You should see two services:
 
 #### Expected Trace Structure
 
+**Distributed Trace Flow** (Browser → Frontend → Python API → Elasticsearch):
+
+```
+Browser (RUM Transaction)
+  ↓ [traceparent header]
+Next.js API Route (/api/search)
+  ↓ [traceparent header]
+Python API (/search)
+  ├── generate_text_embeddings
+  ├── elser_inference
+  └── elasticsearch_search
+    ↓ [traceparent header]
+  Elasticsearch (via client)
+```
+
 **Python API Traces** (`/embed`, `/embed-image`, `/embed-svg`, `/search`):
 
 ```
@@ -98,8 +113,55 @@ Root Span: FastAPI request
 Root Span: api/search or api/saveIcon
 ├── HTTP attributes (method, status_code, etc.)
 ├── Search attributes (type, result_count, etc.)
-└── Child spans from Python API (if distributed tracing is working)
+└── Child spans from Python API (distributed tracing enabled)
 ```
+
+#### Distributed Tracing
+
+The system uses **W3C Trace Context** format for distributed tracing across services:
+
+- **Trace Context Headers**: `traceparent` and `tracestate` headers propagate trace context
+- **Trace ID**: 32-character hex string that uniquely identifies a trace across all services
+- **Span Relationships**: Spans are linked as parent-child relationships across service boundaries
+
+**Trace Context Propagation Flow**:
+
+1. **Browser (RUM)**: Elastic APM RUM agent injects `traceparent` header in requests to Next.js API routes
+2. **Next.js API**: Extracts trace context from incoming headers and continues the trace
+3. **Python API**: FastAPI instrumentation extracts trace context and creates child spans
+4. **Elasticsearch**: Elasticsearch instrumentation propagates trace context to Elasticsearch queries
+
+**Accessing Trace IDs**:
+
+- **Frontend**: Use `getTraceId()` from `frontend/lib/traceContext.ts`
+- **Python API**: Use `get_trace_id()` from `otel_config.py`
+- **Response Headers**: Trace IDs are included in `X-Trace-Id` response header for debugging
+
+**Verifying Distributed Tracing**:
+
+```bash
+# Run verification script
+python scripts/verify/verify-trace-propagation.py
+
+# Check trace IDs in response headers
+curl -v http://localhost:3000/api/search \
+  -H "Content-Type: application/json" \
+  -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" \
+  -d '{"type":"text","query":"test"}' \
+  | grep -i "x-trace-id"
+```
+
+**Viewing Distributed Traces in Elastic Observability**:
+
+1. Navigate to **APM** > **Traces**
+2. Search for a trace ID or filter by service
+3. View the complete trace showing spans across all services
+4. Click on individual spans to see:
+   - Service name and version
+   - Operation name
+   - Duration and timing
+   - Attributes and tags
+   - Related logs (if configured)
 
 #### Trace Attributes
 
@@ -196,7 +258,7 @@ NEXT_PUBLIC_ELASTIC_APM_SERVER_URL=https://ff29e674b8bb4b06b3e71aaacf84879f.inge
    export OTEL_EXPORTER_OTLP_HEADERS="Authorization=ApiKey ZjlhVnRwb0JITGJzUkpwVXhNR0w6S1htMDVsWHJPbW1yczFMOEo0QTFxdw=="
    
    # Run verification script
-   python scripts/verify-otel.py
+   python scripts/verify/verify-otel.py
    
    # Start API
    python embed.py
@@ -218,12 +280,12 @@ NEXT_PUBLIC_ELASTIC_APM_SERVER_URL=https://ff29e674b8bb4b06b3e71aaacf84879f.inge
    # Make API calls to generate traces
    export FRONTEND_API_KEY="your-api-key"
    export EMBEDDING_SERVICE_URL="http://localhost:8000"
-   ./scripts/test-otel-api.sh
+   ./scripts/test/test-otel-api.sh
    ```
 
 ### Production Deployment
 
-The deployment script (`scripts/deploy-basic.sh`) automatically:
+The deployment script (`scripts/deploy/deploy-basic.sh`) automatically:
 
 1. Detects git commit hash for `OTEL_SERVICE_VERSION`
 2. Sets all OpenTelemetry environment variables
@@ -283,6 +345,36 @@ Look for: `[OTEL] OpenTelemetry initialized for service: eui-python-api`
 2. **Verify instrumentation**: Ensure endpoints are being called
 3. **Check distributed tracing**: Verify trace IDs are being propagated between services
 
+### Distributed Tracing Not Working
+
+1. **Verify W3C Trace Context propagator is configured**:
+   - **Frontend**: Check `frontend/instrumentation.ts` for `W3CTraceContextPropagator`
+   - **Python API**: Check `otel_config.py` for `TraceContextTextMapPropagator`
+
+2. **Check trace context headers**:
+   ```bash
+   # Check if traceparent header is present in requests
+   curl -v http://localhost:3000/api/search \
+     -H "Content-Type: application/json" \
+     -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" \
+     -d '{"type":"text","query":"test"}'
+   ```
+
+3. **Verify trace ID propagation**:
+   ```bash
+   # Run trace propagation verification script
+   python scripts/verify/verify-trace-propagation.py
+   ```
+
+4. **Check service logs**:
+   - Look for trace IDs in logs (if logging is configured)
+   - Verify `X-Trace-Id` header is present in responses
+
+5. **Verify RUM configuration**:
+   - Check `frontend/lib/rum.ts` for `distributedTracingOrigins` configuration
+   - Ensure same-origin API routes are included in `distributedTracingOrigins`
+   - Verify RUM agent is initialized in browser (check console logs)
+
 ### High Latency in Traces
 
 - OpenTelemetry adds minimal overhead (< 1ms per span)
@@ -324,9 +416,58 @@ Look for: `[OTEL] OpenTelemetry initialized for service: eui-python-api`
 - **Dashboards**: Create custom dashboards for key metrics
 - **Correlation**: Correlate traces with logs using trace IDs
 
+## Trace ID Access for Debugging
+
+### Frontend (TypeScript)
+
+```typescript
+import { getTraceId } from '../lib/traceContext';
+
+// Get current trace ID
+const traceId = getTraceId();
+console.log('Current trace ID:', traceId);
+
+// Trace ID is automatically added to response headers as X-Trace-Id
+```
+
+### Python API
+
+```python
+from otel_config import get_trace_id
+
+# Get current trace ID
+trace_id = get_trace_id()
+print(f"Current trace ID: {trace_id}")
+
+# Trace ID is automatically added to response headers as X-Trace-Id
+```
+
+### Using Trace IDs in Logs
+
+To correlate logs with traces, include trace IDs in your log messages:
+
+**Frontend**:
+```typescript
+import { getTraceId } from '../lib/traceContext';
+
+const traceId = getTraceId();
+console.log(`[${traceId}] Processing search request:`, query);
+```
+
+**Python API**:
+```python
+from otel_config import get_trace_id
+import logging
+
+logger = logging.getLogger(__name__)
+trace_id = get_trace_id()
+logger.info(f"[{trace_id}] Processing search request: {query}")
+```
+
 ## Additional Resources
 
 - [OpenTelemetry Documentation](https://opentelemetry.io/docs/)
+- [W3C Trace Context Specification](https://www.w3.org/TR/trace-context/)
 - [Elastic APM Documentation](https://www.elastic.co/guide/en/apm/index.html)
 - [Elastic Observability Guide](https://www.elastic.co/guide/en/observability/current/index.html)
 - [OpenTelemetry Python SDK](https://opentelemetry.io/docs/instrumentation/python/)
