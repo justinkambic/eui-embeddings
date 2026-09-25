@@ -12,10 +12,10 @@ include .env
 export
 endif
 
-PYTHON ?= python3
+PYTHON ?= venv/bin/python
 INGESTER_PYTHON ?= $(PYTHON) -m ingester
 
-.PHONY: help verify seed ingest ingest-trickle demo \
+.PHONY: help verify seed ingest ingest-trickle quality augment-backfill demo \
         ingester-install ingester-test \
         clean-pycache
 
@@ -58,6 +58,14 @@ ingest:  ## (Phase 3) Ingest a single EUI version. Use VERSION=vXX.Y.Z.
 ingest-trickle:  ## (Phase 3) Background backfill at PACE between versions. Use FROM=, TO=, PACE=10m.
 	@if [ -z "$(FROM)" ] || [ -z "$(TO)" ]; then echo "Usage: make ingest-trickle FROM=v92.0.0 TO=v114.0.0 PACE=10m" >&2; exit 1; fi
 	@$(INGESTER_PYTHON) trickle --from "$(FROM)" --to "$(TO)" --pace "$(PACE)"
+
+quality:  ## Run quality sweep for a version. Use VERSION=vXX.Y.Z.
+	@if [ -z "$(VERSION)" ]; then echo "Usage: make quality VERSION=v116.5.0" >&2; exit 1; fi
+	@$(PYTHON) scripts/quality_sweep.py --version "$(VERSION)"
+
+augment-backfill:  ## Backfill image_vector_aug_centroid for an existing version. Use VERSION=vXX.Y.Z [PNG_DIR=path].
+	@if [ -z "$(VERSION)" ]; then echo "Usage: make augment-backfill VERSION=v116.5.0 [PNG_DIR=reports/playwright_pngs_v116.5.0]" >&2; exit 1; fi
+	@$(PYTHON) scripts/build_augmented_centroids.py --version "$(VERSION)" $(if $(PNG_DIR),--png-dir "$(PNG_DIR)",)
 
 # === Phase 5 ===
 
