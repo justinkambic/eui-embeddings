@@ -12,6 +12,7 @@ Flow:
 from __future__ import annotations
 
 import json
+import re
 from urllib.parse import urlencode
 
 import httpx
@@ -35,7 +36,7 @@ def _redirect_uri() -> str:
     return f"{config.SERVER_BASE_URL}/auth/callback"
 
 
-def login_url() -> str:
+def login_url(state: str | None = None) -> str:
     params = {
         "client_id": config.GOOGLE_CLIENT_ID,
         "redirect_uri": _redirect_uri(),
@@ -44,7 +45,51 @@ def login_url() -> str:
         "access_type": "online",
         "prompt": "select_account",
     }
+    if state:
+        # Google echoes `state` back to /auth/callback verbatim. We use it to
+        # carry the CLI loopback port + nonce for non-browser clients (MCP).
+        params["state"] = state
     return f"{_GOOGLE_AUTH_URL}?{urlencode(params)}"
+
+
+# --- CLI / MCP loopback handoff ---------------------------------------------
+#
+# Browser clients receive the token via postMessage to window.opener. CLI
+# clients (the MCP server) have no opener, so they start a one-shot HTTP
+# listener on 127.0.0.1:<port>, send us the port + a random nonce in the
+# OAuth `state`, and we redirect the browser there with the token once Google
+# has authenticated the user. The redirect host is hard-coded to loopback so
+# this can never be turned into an open redirect.
+
+_CLI_STATE_PREFIX = "cli:"
+_CLI_NONCE_RE = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
+_CLI_PORT_MIN, _CLI_PORT_MAX = 1024, 65535
+
+
+def encode_cli_state(port: int, nonce: str) -> str:
+    if not (_CLI_PORT_MIN <= port <= _CLI_PORT_MAX):
+        raise HTTPException(status_code=400, detail="cli_port out of range")
+    if not _CLI_NONCE_RE.match(nonce):
+        raise HTTPException(status_code=400, detail="state must be 16-128 URL-safe chars")
+    return f"{_CLI_STATE_PREFIX}{port}:{nonce}"
+
+
+def decode_cli_state(state: str | None) -> tuple[int, str] | None:
+    """Return (port, nonce) if `state` is a CLI handoff, else None."""
+    if not state or not state.startswith(_CLI_STATE_PREFIX):
+        return None
+    try:
+        port_s, nonce = state[len(_CLI_STATE_PREFIX):].split(":", 1)
+        port = int(port_s)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Malformed state")
+    if not (_CLI_PORT_MIN <= port <= _CLI_PORT_MAX) or not _CLI_NONCE_RE.match(nonce):
+        raise HTTPException(status_code=400, detail="Malformed state")
+    return port, nonce
+
+
+def cli_redirect_url(port: int, nonce: str, token: str) -> str:
+    return f"http://127.0.0.1:{port}/callback?{urlencode({'token': token, 'state': nonce})}"
 
 
 async def exchange_and_verify(code: str) -> dict:

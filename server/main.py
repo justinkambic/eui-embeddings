@@ -3,7 +3,10 @@
 Exposes:
   GET  /health            — liveness probe, no auth
   GET  /auth/login        — redirect to Google OAuth consent screen
-  GET  /auth/callback     — OAuth callback; sets bearer token via postMessage
+                            (?cli_port=&state= for CLI loopback clients)
+  GET  /auth/callback     — OAuth callback; hands the bearer token to the
+                            browser opener via postMessage, or to a CLI via
+                            redirect to http://127.0.0.1:<cli_port>/callback
   GET  /auth/status       — returns {authenticated, email} for the current token
   POST /api/icon-search   — kNN search by text or image (requires auth)
   GET  /api/versions      — list indexed EUI release tags (requires auth)
@@ -24,7 +27,16 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, field_validator
 
 from . import config
-from .auth import exchange_and_verify, login_url, make_token, optional_auth, require_auth
+from .auth import (
+    cli_redirect_url,
+    decode_cli_state,
+    encode_cli_state,
+    exchange_and_verify,
+    login_url,
+    make_token,
+    optional_auth,
+    require_auth,
+)
 from .es import SearchClient
 from .image import normalize
 
@@ -65,12 +77,26 @@ async def health():
 # --- auth --------------------------------------------------------------------
 
 @app.get("/auth/login")
-async def auth_login():
-    return RedirectResponse(login_url())
+async def auth_login(cli_port: int | None = None, state: str | None = None):
+    """Redirect to Google.
+
+    Browser clients call this with no params. CLI clients (the MCP server)
+    pass `cli_port` (their loopback listener) and `state` (a random nonce);
+    the callback then redirects to http://127.0.0.1:<cli_port>/callback
+    with the token instead of using postMessage.
+    """
+    oauth_state = None
+    if cli_port is not None or state is not None:
+        if cli_port is None or state is None:
+            raise HTTPException(status_code=400, detail="cli_port and state must be given together")
+        oauth_state = encode_cli_state(cli_port, state)
+    return RedirectResponse(login_url(oauth_state))
 
 
 @app.get("/auth/callback")
-async def auth_callback(code: str):
+async def auth_callback(code: str, state: str | None = None):
+    cli = decode_cli_state(state)
+
     try:
         claims = await exchange_and_verify(code)
     except Exception as e:
@@ -80,6 +106,11 @@ async def auth_callback(code: str):
         raise HTTPException(status_code=403, detail="Access restricted to Elastic employees")
 
     token = make_token(claims["email"])
+
+    if cli:
+        port, nonce = cli
+        return RedirectResponse(cli_redirect_url(port, nonce, token), status_code=302)
+
     payload = json.dumps({"type": "auth:complete", "token": token})
     return HTMLResponse(f"""<!DOCTYPE html>
 <html><body><script>

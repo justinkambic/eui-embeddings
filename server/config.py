@@ -13,7 +13,9 @@ GOOGLE_CLIENT_ID: str = os.environ["GOOGLE_CLIENT_ID"]
 GOOGLE_CLIENT_SECRET: str = os.environ["GOOGLE_CLIENT_SECRET"]
 # Secret for signing bearer tokens. Generate with: python -c "import secrets; print(secrets.token_hex(32))"
 TOKEN_SECRET: str = os.environ["TOKEN_SECRET"]
-TOKEN_MAX_AGE_S: int = int(os.environ.get("TOKEN_MAX_AGE_S", str(8 * 3600)))
+# Default 7 days: MCP clients cache the token and re-open the browser when
+# it expires, so a longer lifetime keeps that to about once a week.
+TOKEN_MAX_AGE_S: int = int(os.environ.get("TOKEN_MAX_AGE_S", str(7 * 24 * 3600)))
 
 # Full base URL of this server, used to build the OAuth redirect URI.
 SERVER_BASE_URL: str = os.environ.get("SERVER_BASE_URL", "http://localhost:4555")
