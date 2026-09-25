@@ -1,13 +1,10 @@
 {
-  "_comment": "Add this block to your Claude Code config (~/.claude.json or ~/.config/claude-code/config.json depending on platform). Replace ABS_PATH with the absolute path to your eui-embeddings checkout.",
+  "_comment": "Add this block to your Claude Code config (~/.claude.json on macOS). Replace ABS_PATH with the absolute path to your eui-embeddings checkout. Run `.venv-mcp/bin/python examples/mcp/server.py login` once first to sign in with your Elastic Google account. To use a local sidecar instead of the hosted API, add ICON_SEARCH_BASE_URL=http://127.0.0.1:4555 to env.",
 
   "mcpServers": {
     "eui-icons": {
       "command": "/ABS_PATH/eui-embeddings/.venv-mcp/bin/python",
-      "args": ["/ABS_PATH/eui-embeddings/examples/mcp/server.py"],
-      "env": {
-        "ICON_SEARCH_BASE_URL": "http://127.0.0.1:4555"
-      }
+      "args": ["/ABS_PATH/eui-embeddings/examples/mcp/server.py"]
     }
   }
 }
