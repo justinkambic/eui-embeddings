@@ -12,10 +12,12 @@ plus resvg.
 
 from __future__ import annotations
 
+import io
 import re
 from dataclasses import dataclass
 
 import resvg_py
+from PIL import Image, ImageOps
 
 from .palette import DEFAULT_CHROME_HEX, resolve as resolve_color
 
@@ -143,6 +145,43 @@ def rasterize_token(
         '</svg>'
     )
     return bytes(resvg_py.svg_to_bytes(svg_string=svg))
+
+
+def tta_variants(png: bytes, size: int = DEFAULT_PNG_SIZE) -> list[bytes]:
+    """Return K padded variants of a PNG for test-time augmentation.
+
+    Each variant pads the icon by a different fraction before fit-contain into
+    a `size`×`size` white canvas, shrinking the icon relative to the canvas.
+    Averaging the K embeddings produces a vector that is robust to whatever
+    crop/scale the user happened to paste.
+
+    Fractions: 0% (identity), 10%, 25%, 50%.  The identity variant (index 0)
+    matches the plain rasterized PNG used for `image_vector`.
+    """
+    src = Image.open(io.BytesIO(png))
+    if src.mode in ("RGBA", "LA") or (src.mode == "P" and "transparency" in src.info):
+        rgba = src.convert("RGBA")
+        bg = Image.new("RGB", rgba.size, (255, 255, 255))
+        bg.paste(rgba, mask=rgba.split()[-1])
+        src = bg
+    else:
+        src = src.convert("RGB")
+
+    variants: list[bytes] = []
+    for pad_frac in (0.0, 0.10, 0.25, 0.50):
+        if pad_frac == 0.0:
+            padded = src
+        else:
+            pad = int(max(src.width, src.height) * pad_frac)
+            padded = ImageOps.expand(src, border=pad, fill=(255, 255, 255))
+        im = padded.copy()
+        im.thumbnail((size, size), Image.Resampling.LANCZOS)
+        canvas = Image.new("RGB", (size, size), (255, 255, 255))
+        canvas.paste(im, ((size - im.width) // 2, (size - im.height) // 2))
+        buf = io.BytesIO()
+        canvas.save(buf, format="PNG", optimize=True)
+        variants.append(buf.getvalue())
+    return variants
 
 
 def resolve_chrome(color_token: str, shape: str, theme: str = "amsterdam") -> ResolvedChrome:

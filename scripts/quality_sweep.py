@@ -47,7 +47,7 @@ from ingester.es_client import EsClient, EsConfig  # noqa: E402
 from ingester.eui_repo import DEFAULT_LOCATION, EuiRepo  # noqa: E402
 from ingester.extract_svg import extract_from_tsx, to_inline_svg  # noqa: E402
 from ingester.parse_maps import parse_repo  # noqa: E402
-from ingester.raster import rasterize_glyph  # noqa: E402
+from ingester.raster import rasterize_glyph, tta_variants as _tta_variants  # noqa: E402
 
 
 log = logging.getLogger("quality_sweep")
@@ -123,46 +123,6 @@ async def _knn_search(
     ]
 
 
-
-
-def _tta_variants(png: bytes, size: int = 256) -> list[bytes]:
-    """Generate K padded variants of a query PNG for test-time
-    augmentation. Each variant is a fit-contained 256x256 PNG with a
-    different amount of pre-fit white padding around the icon, so the
-    resize-fit-contain step lays the icon at different scales onto
-    the canvas. Averaging the K embeddings produces a query vector
-    that's more robust to whatever cropping the user happened to
-    paste in.
-    """
-    from PIL import Image, ImageOps
-
-    src = Image.open(io.BytesIO(png))
-    if src.mode in ("RGBA", "LA") or (src.mode == "P" and "transparency" in src.info):
-        rgba = src.convert("RGBA")
-        bg = Image.new("RGB", rgba.size, (255, 255, 255))
-        bg.paste(rgba, mask=rgba.split()[-1])
-        src = bg
-    else:
-        src = src.convert("RGB")
-
-    variants: list[bytes] = []
-    # 0.0 == identity (matches plain --normalize). Other values pad
-    # the input by N% of the larger side before fit-contain, which
-    # shrinks the icon relative to the 256x256 canvas.
-    for pad_frac in (0.0, 0.10, 0.25, 0.50):
-        if pad_frac == 0.0:
-            padded = src
-        else:
-            pad = int(max(src.width, src.height) * pad_frac)
-            padded = ImageOps.expand(src, border=pad, fill=(255, 255, 255))
-        im = padded.copy()
-        im.thumbnail((size, size), Image.Resampling.LANCZOS)
-        canvas = Image.new("RGB", (size, size), (255, 255, 255))
-        canvas.paste(im, ((size - im.width) // 2, (size - im.height) // 2))
-        out = io.BytesIO()
-        canvas.save(out, format="PNG", optimize=True)
-        variants.append(out.getvalue())
-    return variants
 
 
 def _normalize_for_query(png: bytes, size: int = 256) -> bytes:

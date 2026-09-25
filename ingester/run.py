@@ -31,7 +31,7 @@ from .es_client import EsClient, EsConfig
 from .eui_repo import EuiRepo, DEFAULT_LOCATION, DEFAULT_REPO_URL
 from .extract_svg import extract_from_tsx, to_inline_svg
 from .parse_maps import IconEntry, parse_repo
-from .raster import rasterize_glyph
+from .raster import rasterize_glyph, tta_variants
 from .util import doc_id, humanize_prop, major_from_tag
 
 
@@ -96,29 +96,58 @@ class IngestStats:
     render_errors: list[str] = field(default_factory=list)
 
 
-async def _bulk_embed(es: EsClient, pngs: list[bytes], texts: list[str], batch_size: int) -> tuple[list[list[float]], list[list[float]]]:
-    """Embed pngs and texts in parallel chunks of `batch_size`."""
+_TTA_K = 4  # number of variants produced by tta_variants()
+
+
+async def _bulk_embed(
+    es: EsClient,
+    pngs: list[bytes],
+    texts: list[str],
+    batch_size: int,
+) -> tuple[list[list[float]], list[list[float]], list[list[float]]]:
+    """Embed pngs and texts in parallel chunks of `batch_size`.
+
+    Returns (image_vectors, name_vectors, aug_centroid_vectors).
+    aug_centroid_vectors[i] is the mean of _TTA_K padded variants of pngs[i],
+    making the stored vector robust to crop/scale variation at query time.
+    """
     async def embed_pngs_chunk(chunk: list[bytes]) -> list[list[float]]:
         return await es.embed_pngs(chunk)
 
     async def embed_texts_chunk(chunk: list[str]) -> list[list[float]]:
         return await es.embed_texts(chunk)
 
+    # Flatten TTA variants: N icons → N*K variant PNGs (identity variant first).
+    all_variants: list[bytes] = []
+    for png in pngs:
+        all_variants.extend(tta_variants(png))
+
     png_chunks = [pngs[i : i + batch_size] for i in range(0, len(pngs), batch_size)]
     text_chunks = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
+    variant_chunks = [all_variants[i : i + batch_size] for i in range(0, len(all_variants), batch_size)]
 
     png_tasks = [embed_pngs_chunk(c) for c in png_chunks]
     text_tasks = [embed_texts_chunk(c) for c in text_chunks]
+    variant_tasks = [embed_pngs_chunk(c) for c in variant_chunks]
 
-    # Run image and text embedding concurrently. Each batch is one HTTP call.
-    png_results, text_results = await asyncio.gather(
+    # Run all three concurrently; EsClient semaphore caps inference parallelism.
+    png_results, text_results, variant_results = await asyncio.gather(
         asyncio.gather(*png_tasks),
         asyncio.gather(*text_tasks),
+        asyncio.gather(*variant_tasks),
     )
 
     image_vectors = [v for chunk in png_results for v in chunk]
     name_vectors = [v for chunk in text_results for v in chunk]
-    return image_vectors, name_vectors
+
+    all_variant_vecs = [v for chunk in variant_results for v in chunk]
+    aug_centroids: list[list[float]] = []
+    for i in range(0, len(all_variant_vecs), _TTA_K):
+        group = all_variant_vecs[i : i + _TTA_K]
+        dim = len(group[0])
+        aug_centroids.append([sum(v[j] for v in group) / len(group) for j in range(dim)])
+
+    return image_vectors, name_vectors, aug_centroids
 
 
 async def ingest_version(
@@ -179,15 +208,16 @@ async def ingest_version(
     texts = [text_for_plan(p) for p in plans]
 
     log.info("embedding via _inference (batch_size=%d)", batch_size)
-    image_vectors, name_vectors = await _bulk_embed(es, pngs, texts, batch_size)
-    if len(image_vectors) != len(plans) or len(name_vectors) != len(plans):
+    image_vectors, name_vectors, aug_centroids = await _bulk_embed(es, pngs, texts, batch_size)
+    if len(image_vectors) != len(plans) or len(name_vectors) != len(plans) or len(aug_centroids) != len(plans):
         raise RuntimeError(
-            f"vector count mismatch: plans={len(plans)} image={len(image_vectors)} name={len(name_vectors)}"
+            f"vector count mismatch: plans={len(plans)} image={len(image_vectors)} "
+            f"name={len(name_vectors)} aug={len(aug_centroids)}"
         )
 
     release_major = major_from_tag(version)
     docs: list[tuple[str, dict]] = []
-    for plan, iv, nv in zip(plans, image_vectors, name_vectors):
+    for plan, iv, nv, ac in zip(plans, image_vectors, name_vectors, aug_centroids):
         source: dict[str, Any] = {
             "prop_name": plan.prop_name,
             "release_tag": version,
@@ -197,6 +227,7 @@ async def ingest_version(
             "asset_path": str(plan.asset_path.relative_to(repo.location)),
             "image_vector": iv,
             "name_vector": nv,
+            "image_vector_aug_centroid": ac,
         }
         docs.append((plan.doc_id(version), source))
 

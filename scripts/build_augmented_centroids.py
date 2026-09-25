@@ -41,7 +41,7 @@ env = dotenv_values(REPO_ROOT / ".env")
 os.environ.update({k: v for k, v in env.items() if v})
 
 from ingester.es_client import EsClient, EsConfig  # noqa: E402
-from scripts.quality_sweep import _tta_variants  # noqa: E402
+from ingester.raster import tta_variants as _tta_variants  # noqa: E402
 
 log = logging.getLogger("build_augmented_centroids")
 
